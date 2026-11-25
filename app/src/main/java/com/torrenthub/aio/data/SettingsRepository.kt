@@ -7,12 +7,14 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.torrenthub.aio.model.PikPakCredentials
 import com.torrenthub.aio.model.SubtitleProvider
 import com.torrenthub.aio.model.TranslationProvider
+import com.torrenthub.aio.network.DohProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,17 +26,49 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
+import java.util.UUID
 
 enum class AppLanguage(val code: String, val nativeLabel: String, val flag: String) {
     ID("id", "Indonesia", "🇮🇩"),
-    EN("en", "English", "🇬🇧"),
-    ZH("zh", "中文 (Mandarin)", "🇨🇳"),
-    JA("ja", "日本語 (Jepang)", "🇯🇵"),
-    KO("ko", "한국어 (Korea)", "🇰🇷");
+    EN("en", "English", "🇬🇧");
 
     companion object {
         fun fromCode(code: String?): AppLanguage =
+            entries.firstOrNull { it.code.equals(code, ignoreCase = true) } ?: ID
+    }
+}
+
+enum class SubtitleTargetLanguage(
+    val code: String,
+    val nativeLabel: String,
+    val flag: String,
+    val englishPromptName: String,
+    val googleGtxCode: String,
+    val deeplCode: String,
+    val openSubIso3: String
+) {
+    ID("id", "Indonesia", "🇮🇩", "Indonesian (Bahasa Indonesia)", "id", "ID", "ind"),
+    EN("en", "English", "🇬🇧", "English", "en", "EN", "eng"),
+    ZH("zh", "中文 (Mandarin)", "🇨🇳", "Simplified Chinese (简体中文)", "zh-CN", "ZH", "chi"),
+    ZH_TW("zh-TW", "繁體中文 (Tradisional)", "🇹🇼", "Traditional Chinese (繁體中文)", "zh-TW", "ZH-HANT", "zht"),
+    JA("ja", "日本語 (Jepang)", "🇯🇵", "Japanese (日本語)", "ja", "JA", "jpn"),
+    KO("ko", "한국어 (Korea)", "🇰🇷", "Korean (한국어)", "ko", "KO", "kor"),
+    MS("ms", "Bahasa Melayu", "🇲🇾", "Malay (Bahasa Melayu)", "ms", "ID", "may"),
+    AR("ar", "العربية (Arab)", "🇸🇦", "Arabic (العربية)", "ar", "AR", "ara"),
+    ES("es", "Español (Spanyol)", "🇪🇸", "Spanish (Español)", "es", "ES", "spa"),
+    FR("fr", "Français (Prancis)", "🇫🇷", "French (Français)", "fr", "FR", "fre"),
+    DE("de", "Deutsch (Jerman)", "🇩🇪", "German (Deutsch)", "de", "DE", "ger"),
+    PT("pt", "Português (Portugis)", "🇧🇷", "Portuguese (Português)", "pt", "PT-BR", "por"),
+    RU("ru", "Русский (Rusia)", "🇷🇺", "Russian (Русский)", "ru", "RU", "rus"),
+    HI("hi", "हिन्दी (Hindi)", "🇮🇳", "Hindi (हिन्दी)", "hi", "EN", "hin"),
+    TH("th", "ไทย (Thailand)", "🇹🇭", "Thai (ไทย)", "th", "TH", "tha"),
+    VI("vi", "Tiếng Việt (Vietnam)", "🇻🇳", "Vietnamese (Tiếng Việt)", "vi", "VI", "vie"),
+    TR("tr", "Türkçe (Turki)", "🇹🇷", "Turkish (Türkçe)", "tr", "TR", "tur");
+
+    companion object {
+        fun fromCode(code: String?): SubtitleTargetLanguage =
             entries.firstOrNull { it.code.equals(code, ignoreCase = true) } ?: ID
     }
 }
@@ -87,12 +121,18 @@ class SettingsRepository private constructor(context: Context) {
     val current: Preferences
         get() = preferencesFlow.value
 
+    init {
+        com.torrenthub.aio.network.HttpClient.applyDohProvider(
+            DohProvider.fromId(initialSnapshot[Keys.DOH_PROVIDER])
+        )
+    }
+
     /* ================= PHASE 1 CORE SETTINGS ================= */
     val appLanguage: AppLanguage
         get() = AppLanguage.fromCode(current[Keys.APP_LANGUAGE])
 
-    val subtitleTargetLang: AppLanguage
-        get() = AppLanguage.fromCode(current[Keys.SUB_TARGET_LANG])
+    val subtitleTargetLang: SubtitleTargetLanguage
+        get() = SubtitleTargetLanguage.fromCode(current[Keys.SUB_TARGET_LANG])
 
     val themeMode: AppThemeMode
         get() = AppThemeMode.fromId(current[Keys.APP_THEME_MODE])
@@ -106,7 +146,7 @@ class SettingsRepository private constructor(context: Context) {
         }
     }
 
-    fun setSubtitleTargetLang(lang: AppLanguage) {
+    fun setSubtitleTargetLang(lang: SubtitleTargetLanguage) {
         repoScope.launch {
             dataStore.edit { it[Keys.SUB_TARGET_LANG] = lang.code }
         }
@@ -532,11 +572,562 @@ class SettingsRepository private constructor(context: Context) {
         }
     }
 
+    /* ================= PHASE 5A: DOH, APP LOCK, DISGUISE & PRIVACY ================= */
+    val dohProvider: DohProvider
+        get() = DohProvider.fromId(current[Keys.DOH_PROVIDER])
+
+    val appLockEnabled: Boolean
+        get() = (current[Keys.APP_LOCK_ENABLED] ?: false) && hasPinConfigured
+
+    val appLockPinHash: String
+        get() = current[Keys.APP_LOCK_PIN_HASH] ?: ""
+
+    val appLockPinLength: Int
+        get() = (current[Keys.APP_LOCK_PIN_LEN] ?: 4).coerceIn(4, 6)
+
+    val hasPinConfigured: Boolean
+        get() = appLockPinHash.isNotBlank()
+
+    val appLockBiometricEnabled: Boolean
+        get() = current[Keys.APP_LOCK_BIOMETRIC] ?: true
+
+    val disguiseModeEnabled: Boolean
+        get() = current[Keys.DISGUISE_MODE_ENABLED] ?: false
+
+    val autoClearOnExit: Boolean
+        get() = current[Keys.AUTO_CLEAR_ON_EXIT] ?: false
+
+    fun setDohProvider(provider: DohProvider) {
+        com.torrenthub.aio.network.HttpClient.applyDohProvider(provider)
+        repoScope.launch {
+            dataStore.edit { it[Keys.DOH_PROVIDER] = provider.id }
+        }
+    }
+
+    fun saveAppLockPin(pinHash: String, pinLength: Int, enableLock: Boolean = true) {
+        repoScope.launch {
+            dataStore.edit { prefs ->
+                prefs[Keys.APP_LOCK_PIN_HASH] = pinHash
+                prefs[Keys.APP_LOCK_PIN_LEN] = pinLength.coerceIn(4, 6)
+                prefs[Keys.APP_LOCK_ENABLED] = enableLock
+            }
+        }
+    }
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.APP_LOCK_ENABLED] = enabled }
+        }
+    }
+
+    fun setAppLockBiometricEnabled(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.APP_LOCK_BIOMETRIC] = enabled }
+        }
+    }
+
+    fun setDisguiseModeEnabled(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.DISGUISE_MODE_ENABLED] = enabled }
+        }
+    }
+
+    fun setAutoClearOnExit(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.AUTO_CLEAR_ON_EXIT] = enabled }
+        }
+    }
+
+    fun clearPersistedSearchAndBrowserHistory(blocking: Boolean = false) {
+        if (blocking) {
+            runBlocking(Dispatchers.IO) {
+                runCatching {
+                    dataStore.edit { prefs ->
+                        prefs[Keys.BROWSER_LAST_URL] = "https://www.google.com"
+                    }
+                }
+            }
+        } else {
+            repoScope.launch {
+                dataStore.edit { prefs ->
+                    prefs[Keys.BROWSER_LAST_URL] = "https://www.google.com"
+                }
+            }
+        }
+    }
+
+    /* ================= PHASE 5B: JSON BACKUP/RESTORE & STORAGE HELPERS ================= */
+    data class BackupImportResult(
+        val updatedPrefs: Preferences,
+        val restoredSensitiveKeys: Boolean,
+        val rssFeedCount: Int,
+        val customTrackerCount: Int
+    )
+
+    fun estimatedSavedJobProgressBytes(): Long {
+        var total = 0L
+        for ((key, value) in current.asMap()) {
+            if (key.name.startsWith("gst_prog_") && value is String) {
+                total += value.toByteArray(Charsets.UTF_8).size.toLong()
+            }
+        }
+        return total
+    }
+
+    suspend fun clearAllSavedJobProgress() {
+        dataStore.edit { prefs ->
+            val progKeys = prefs.asMap().keys.filter { it.name.startsWith("gst_prog_") }
+            for (k in progKeys) {
+                prefs.remove(k)
+            }
+        }
+    }
+
+    fun estimatedPersistedHistoryBytes(): Long {
+        var total = 0L
+        val dlHist = current[Keys.DOWNLOAD_HISTORY_V1]
+        if (!dlHist.isNullOrBlank() && dlHist != "[]") {
+            total += dlHist.toByteArray(Charsets.UTF_8).size.toLong()
+        }
+        val lastUrl = current[Keys.BROWSER_LAST_URL]
+        if (!lastUrl.isNullOrBlank() && lastUrl != "https://www.google.com") {
+            total += lastUrl.toByteArray(Charsets.UTF_8).size.toLong()
+        }
+        return total
+    }
+
+    fun exportBackupJson(includeSensitiveKeys: Boolean): String {
+        val snap = current
+        val lang = AppLanguage.fromCode(snap[Keys.APP_LANGUAGE])
+        val subTarget = SubtitleTargetLanguage.fromCode(snap[Keys.SUB_TARGET_LANG])
+        val theme = AppThemeMode.fromId(snap[Keys.APP_THEME_MODE])
+        val doh = DohProvider.fromId(snap[Keys.DOH_PROVIDER])
+
+        val generalObj = JSONObject()
+            .put("appLanguage", lang.code)
+            .put("subtitleTargetLang", subTarget.code)
+            .put("themeMode", theme.id)
+            .put("dohProvider", doh.id)
+            .put("disguiseModeEnabled", snap[Keys.DISGUISE_MODE_ENABLED] ?: false)
+            .put("autoClearOnExit", snap[Keys.AUTO_CLEAR_ON_EXIT] ?: false)
+            .put("appLockBiometricEnabled", snap[Keys.APP_LOCK_BIOMETRIC] ?: true)
+
+        val bookmarksArr = runCatching {
+            snap[Keys.BROWSER_BOOKMARKS_V1]?.let { JSONArray(it) }
+        }.getOrNull() ?: JSONArray()
+
+        val browserObj = JSONObject()
+            .put("tabSwipeEnabled", snap[Keys.BROWSER_TAB_SWIPE] ?: true)
+            .put("adShieldEnabled", snap[Keys.BROWSER_ADSHIELD] ?: true)
+            .put("antiPopupStrict", snap[Keys.BROWSER_ANTIPOPUP] ?: true)
+            .put("bookmarks", bookmarksArr)
+
+        val customRaw = snap[Keys.TRACKER_CUSTOM_RAW] ?: ""
+        val customArr = JSONArray().apply {
+            com.torrenthub.aio.util.TrackerManager.parseTrackers(customRaw).forEach { put(it) }
+        }
+        val trackersObj = JSONObject()
+            .put("autoAppendTrackers", snap[Keys.TRACKER_AUTO_APPEND] ?: true)
+            .put(
+                "trackerSourceUrl",
+                snap[Keys.TRACKER_SOURCE_URL] ?: com.torrenthub.aio.util.TrackerManager.DEFAULT_TRACKER_URL
+            )
+            .put("customTrackers", customArr)
+            .put("customTrackersRaw", customRaw)
+            .put("fetchedTrackersRaw", snap[Keys.TRACKER_FETCHED_RAW] ?: "")
+            .put("trackerLastUpdatedMs", snap[Keys.TRACKER_LAST_UPDATED_MS] ?: 0L)
+
+        val enabledSourcesObj = runCatching {
+            snap[Keys.UTA_SOURCES]?.let { JSONObject(it) }
+        }.getOrNull() ?: JSONObject().apply {
+            TorrentRepository.SOURCES.forEach { s -> put(s.id, s.defaultOn) }
+        }
+        val torrentObj = JSONObject()
+            .put("sortMode", snap[Keys.UTA_SORT] ?: "seeders-desc")
+            .put("hideDeadTorrents", snap[Keys.UTA_HIDE_DEAD] ?: true)
+            .put("enabledSources", enabledSourcesObj)
+
+        val feedsArr = runCatching {
+            snap[Keys.RSS_FEEDS_V1]?.let { JSONArray(it) }
+        }.getOrNull() ?: JSONArray().apply {
+            RssRepository.defaultFeeds().forEach { f ->
+                put(
+                    JSONObject()
+                        .put("id", f.id)
+                        .put("title", f.title)
+                        .put("url", f.url)
+                        .put("enabled", f.enabled)
+                )
+            }
+        }
+        val keywordsArr = runCatching {
+            snap[Keys.RSS_KEYWORDS_V1]?.let { JSONArray(it) }
+        }.getOrNull() ?: JSONArray().apply {
+            put("1080p")
+            put("2160p")
+        }
+        val rssObj = JSONObject()
+            .put("feeds", feedsArr)
+            .put("watchKeywords", keywordsArr)
+
+        val subtitleObj = JSONObject()
+            .put("provider", SubtitleProvider.fromId(snap[Keys.SUB_PROVIDER]).id)
+            .put("autoPairSubtitleVideo", snap[Keys.SUB_AUTO_PAIR] ?: false)
+
+        val savedModelsArr = runCatching {
+            snap[Keys.GST_MODELS_LIST]?.let { JSONArray(it) }
+        }.getOrNull() ?: JSONArray()
+
+        val activeTrProvider = TranslationProvider.fromId(
+            snap[Keys.TR_PROVIDER],
+            fallbackToGemini = (snap[Keys.GST_KEYS]?.isNotBlank() == true)
+        )
+        val trObj = JSONObject()
+            .put("provider", activeTrProvider.id)
+            .put("googleTranslateEndpoint", snap[Keys.TR_GOOGLE_ENDPOINT] ?: GeminiEngine.DEFAULT_GOOGLE_GTX_ENDPOINT)
+            .put("geminiEndpoint", snap[Keys.TR_GEMINI_ENDPOINT] ?: GeminiEngine.DEFAULT_GEMINI_ENDPOINT)
+            .put("geminiModel", snap[Keys.GST_MODEL] ?: GeminiEngine.DEFAULT_MODEL)
+            .put("geminiSavedModels", savedModelsArr)
+            .put("geminiTaskMode", snap[Keys.GST_TASK_MODE] ?: "translate")
+            .put("geminiAutoDetect", snap[Keys.GST_AUTODETECT] ?: true)
+            .put("geminiNameMode", snap[Keys.GST_NAME_MODE] ?: "code-upper")
+            .put("geminiNotesTranslate", snap[Keys.GST_NOTES_TR] ?: GeminiEngine.defaultNotesTranslate(subTarget.code))
+            .put("geminiNotesPolish", snap[Keys.GST_NOTES_PL] ?: GeminiEngine.defaultNotesPolish(subTarget.code))
+            .put("geminiGlossary", snap[Keys.GST_GLOSSARY] ?: "")
+            .put("geminiRelaxSafety", snap[Keys.GST_SAFETY] ?: true)
+            .put("geminiIncludeAllLines", snap[Keys.GST_ALL_LINES] ?: false)
+            .put("geminiSlidingContext", snap[Keys.GST_SLIDING_CTX] ?: true)
+            .put("geminiCleanAds", snap[Keys.GST_CLEAN_ADS] ?: true)
+            .put("geminiBilingual", snap[Keys.GST_BILINGUAL] ?: false)
+            .put("geminiTimeShiftSec", snap[Keys.GST_SHIFT_SEC] ?: "0")
+            .put("geminiAutoUploadPikPak", snap[Keys.GST_AUTO_UP_PIKPAK] ?: false)
+            .put("deeplModel", snap[Keys.TR_DEEPL_MODEL] ?: "prefer_quality_optimized")
+            .put("deeplEndpoint", snap[Keys.TR_DEEPL_ENDPOINT] ?: "")
+            .put("openaiModel", snap[Keys.TR_OPENAI_MODEL] ?: "gpt-4o-mini")
+            .put("openaiEndpoint", snap[Keys.TR_OPENAI_ENDPOINT] ?: GeminiEngine.DEFAULT_OPENAI_ENDPOINT)
+
+        if (includeSensitiveKeys) {
+            val apiKeysObj = JSONObject()
+                .put("geminiKeysRaw", snap[Keys.GST_KEYS] ?: "")
+                .put("deeplApiKey", snap[Keys.TR_DEEPL_KEY] ?: "")
+                .put("openaiApiKey", snap[Keys.TR_OPENAI_KEY] ?: "")
+            trObj.put("apiKeys", apiKeysObj)
+        }
+
+        val root = JSONObject()
+            .put("backupApp", "TorrentHub-AIO")
+            .put("schemaVersion", 1)
+            .put("appVersion", "1.4.0-dev")
+            .put("exportedAtMs", System.currentTimeMillis())
+            .put("includesSensitiveKeys", includeSensitiveKeys)
+            .put("general", generalObj)
+            .put("browser", browserObj)
+            .put("trackers", trackersObj)
+            .put("torrent", torrentObj)
+            .put("rss", rssObj)
+            .put("subtitle", subtitleObj)
+            .put("translation", trObj)
+
+        return root.toString(2)
+    }
+
+    suspend fun importBackupJson(rawJson: String): BackupImportResult {
+        val cleaned = rawJson.trim().removePrefix("\uFEFF")
+        if (cleaned.isEmpty()) {
+            throw IllegalArgumentException("Empty JSON file")
+        }
+        val root = JSONObject(cleaned)
+        val hasRecognizedSection = root.optString("backupApp") == "TorrentHub-AIO" ||
+            root.has("general") ||
+            root.has("trackers") ||
+            root.has("rss") ||
+            root.has("translation")
+        if (!hasRecognizedSection) {
+            throw IllegalArgumentException("Invalid TorrentHub backup schema")
+        }
+
+        var restoredKeys = false
+        var importedRssCount = 0
+        var importedCustomTrackerCount = 0
+
+        val updatedPrefs = dataStore.edit { prefs ->
+            root.optJSONObject("general")?.let { gen ->
+                if (gen.has("appLanguage")) {
+                    prefs[Keys.APP_LANGUAGE] = AppLanguage.fromCode(gen.optString("appLanguage")).code
+                }
+                if (gen.has("subtitleTargetLang")) {
+                    prefs[Keys.SUB_TARGET_LANG] = SubtitleTargetLanguage.fromCode(gen.optString("subtitleTargetLang")).code
+                }
+                if (gen.has("themeMode")) {
+                    prefs[Keys.APP_THEME_MODE] = AppThemeMode.fromId(gen.optString("themeMode")).id
+                }
+                if (gen.has("dohProvider")) {
+                    val doh = DohProvider.fromId(gen.optString("dohProvider"))
+                    prefs[Keys.DOH_PROVIDER] = doh.id
+                    com.torrenthub.aio.network.HttpClient.applyDohProvider(doh)
+                }
+                if (gen.has("disguiseModeEnabled")) {
+                    prefs[Keys.DISGUISE_MODE_ENABLED] = gen.optBoolean("disguiseModeEnabled", false)
+                }
+                if (gen.has("autoClearOnExit")) {
+                    prefs[Keys.AUTO_CLEAR_ON_EXIT] = gen.optBoolean("autoClearOnExit", false)
+                }
+                if (gen.has("appLockBiometricEnabled")) {
+                    prefs[Keys.APP_LOCK_BIOMETRIC] = gen.optBoolean("appLockBiometricEnabled", true)
+                }
+            }
+
+            root.optJSONObject("browser")?.let { br ->
+                if (br.has("tabSwipeEnabled")) {
+                    prefs[Keys.BROWSER_TAB_SWIPE] = br.optBoolean("tabSwipeEnabled", true)
+                }
+                if (br.has("adShieldEnabled")) {
+                    prefs[Keys.BROWSER_ADSHIELD] = br.optBoolean("adShieldEnabled", true)
+                }
+                if (br.has("antiPopupStrict")) {
+                    prefs[Keys.BROWSER_ANTIPOPUP] = br.optBoolean("antiPopupStrict", true)
+                }
+                br.optJSONArray("bookmarks")?.let { bmArr ->
+                    val sanitized = JSONArray()
+                    for (i in 0 until bmArr.length()) {
+                        val o = bmArr.optJSONObject(i) ?: continue
+                        val u = o.optString("url").trim()
+                        if (u.isNotBlank()) {
+                            sanitized.put(
+                                JSONObject()
+                                    .put("title", o.optString("title").trim().ifBlank { u })
+                                    .put("url", u)
+                            )
+                        }
+                    }
+                    if (sanitized.length() > 0) {
+                        prefs[Keys.BROWSER_BOOKMARKS_V1] = sanitized.toString()
+                    }
+                }
+            }
+
+            root.optJSONObject("trackers")?.let { trk ->
+                if (trk.has("autoAppendTrackers")) {
+                    prefs[Keys.TRACKER_AUTO_APPEND] = trk.optBoolean("autoAppendTrackers", true)
+                }
+                if (trk.has("trackerSourceUrl")) {
+                    val srcUrl = trk.optString("trackerSourceUrl").trim()
+                        .ifBlank { com.torrenthub.aio.util.TrackerManager.DEFAULT_TRACKER_URL }
+                    prefs[Keys.TRACKER_SOURCE_URL] = srcUrl
+                }
+                val resolvedCustomRaw = when {
+                    trk.has("customTrackersRaw") -> trk.optString("customTrackersRaw")
+                    trk.optJSONArray("customTrackers") != null -> {
+                        val arr = trk.optJSONArray("customTrackers")!!
+                        buildList {
+                            for (i in 0 until arr.length()) {
+                                val line = arr.optString(i).trim()
+                                if (line.isNotEmpty()) add(line)
+                            }
+                        }.joinToString("\n")
+                    }
+                    else -> null
+                }
+                if (resolvedCustomRaw != null) {
+                    prefs[Keys.TRACKER_CUSTOM_RAW] = resolvedCustomRaw
+                    importedCustomTrackerCount = com.torrenthub.aio.util.TrackerManager.parseTrackers(resolvedCustomRaw).size
+                }
+                if (trk.has("fetchedTrackersRaw")) {
+                    prefs[Keys.TRACKER_FETCHED_RAW] = trk.optString("fetchedTrackersRaw").trim()
+                }
+                if (trk.has("trackerLastUpdatedMs")) {
+                    prefs[Keys.TRACKER_LAST_UPDATED_MS] = trk.optLong("trackerLastUpdatedMs", 0L).coerceAtLeast(0L)
+                }
+            }
+
+            root.optJSONObject("torrent")?.let { tor ->
+                if (tor.has("sortMode")) {
+                    val sm = tor.optString("sortMode").trim()
+                    if (sm.isNotBlank()) prefs[Keys.UTA_SORT] = sm
+                }
+                if (tor.has("hideDeadTorrents")) {
+                    prefs[Keys.UTA_HIDE_DEAD] = tor.optBoolean("hideDeadTorrents", true)
+                }
+                tor.optJSONObject("enabledSources")?.let { srcObj ->
+                    prefs[Keys.UTA_SOURCES] = srcObj.toString()
+                }
+            }
+
+            root.optJSONObject("rss")?.let { rss ->
+                rss.optJSONArray("feeds")?.let { fArr ->
+                    val normalizedFeeds = JSONArray()
+                    val seenUrls = HashSet<String>()
+                    for (i in 0 until fArr.length()) {
+                        val o = fArr.optJSONObject(i) ?: continue
+                        val url = o.optString("url").trim()
+                        if ((url.startsWith("http://", true) || url.startsWith("https://", true)) &&
+                            seenUrls.add(url.lowercase())
+                        ) {
+                            normalizedFeeds.put(
+                                JSONObject()
+                                    .put("id", o.optString("id").trim().ifBlank { UUID.randomUUID().toString() })
+                                    .put("title", o.optString("title").trim().ifBlank { url })
+                                    .put("url", url)
+                                    .put("enabled", o.optBoolean("enabled", true))
+                                    .put("lastSyncMs", 0L)
+                                    .put("lastItemCount", 0)
+                                    .put("lastError", "")
+                            )
+                        }
+                    }
+                    importedRssCount = normalizedFeeds.length()
+                    prefs[Keys.RSS_FEEDS_V1] = normalizedFeeds.toString()
+                }
+                rss.optJSONArray("watchKeywords")?.let { kwArr ->
+                    val normalizedKws = JSONArray()
+                    val seenKw = HashSet<String>()
+                    for (i in 0 until kwArr.length()) {
+                        val kw = kwArr.optString(i).trim()
+                        if (kw.isNotEmpty() && seenKw.add(kw.lowercase())) {
+                            normalizedKws.put(kw)
+                        }
+                    }
+                    prefs[Keys.RSS_KEYWORDS_V1] = normalizedKws.toString()
+                }
+            }
+
+            root.optJSONObject("subtitle")?.let { sub ->
+                if (sub.has("provider")) {
+                    prefs[Keys.SUB_PROVIDER] = SubtitleProvider.fromId(sub.optString("provider")).id
+                }
+                if (sub.has("autoPairSubtitleVideo")) {
+                    val wantPair = sub.optBoolean("autoPairSubtitleVideo", false)
+                    val hasFolderPerm = !prefs[Keys.SUB_PAIR_FOLDER_URI].isNullOrBlank()
+                    prefs[Keys.SUB_AUTO_PAIR] = wantPair && hasFolderPerm
+                }
+            }
+
+            root.optJSONObject("translation")?.let { tr ->
+                val includesKeysFlag = root.optBoolean("includesSensitiveKeys", false)
+                val apiKeysObj = tr.optJSONObject("apiKeys")
+                if (includesKeysFlag || apiKeysObj != null) {
+                    val srcKeys = apiKeysObj ?: tr
+                    if (srcKeys.has("geminiKeysRaw")) {
+                        prefs[Keys.GST_KEYS] = srcKeys.optString("geminiKeysRaw").trim()
+                        restoredKeys = true
+                    }
+                    if (srcKeys.has("deeplApiKey")) {
+                        prefs[Keys.TR_DEEPL_KEY] = srcKeys.optString("deeplApiKey").trim()
+                        restoredKeys = true
+                    }
+                    if (srcKeys.has("openaiApiKey")) {
+                        prefs[Keys.TR_OPENAI_KEY] = srcKeys.optString("openaiApiKey").trim()
+                        restoredKeys = true
+                    }
+                }
+
+                if (tr.has("provider")) {
+                    val prov = TranslationProvider.fromId(
+                        tr.optString("provider"),
+                        fallbackToGemini = (prefs[Keys.GST_KEYS]?.isNotBlank() == true)
+                    )
+                    prefs[Keys.TR_PROVIDER] = prov.id
+                }
+                if (tr.has("googleTranslateEndpoint")) {
+                    prefs[Keys.TR_GOOGLE_ENDPOINT] = tr.optString("googleTranslateEndpoint").trim()
+                        .ifBlank { GeminiEngine.DEFAULT_GOOGLE_GTX_ENDPOINT }
+                }
+                if (tr.has("geminiEndpoint")) {
+                    prefs[Keys.TR_GEMINI_ENDPOINT] = tr.optString("geminiEndpoint").trim()
+                        .ifBlank { GeminiEngine.DEFAULT_GEMINI_ENDPOINT }
+                }
+                if (tr.has("geminiModel")) {
+                    val gm = tr.optString("geminiModel").trim()
+                    if (gm.isNotBlank()) prefs[Keys.GST_MODEL] = gm
+                }
+                tr.optJSONArray("geminiSavedModels")?.let { mArr ->
+                    val cleanModels = JSONArray()
+                    for (i in 0 until mArr.length()) {
+                        val m = mArr.optString(i).trim()
+                        if (m.isNotEmpty()) cleanModels.put(m)
+                    }
+                    prefs[Keys.GST_MODELS_LIST] = cleanModels.toString()
+                }
+                if (tr.has("geminiTaskMode")) {
+                    val tm = tr.optString("geminiTaskMode").trim()
+                    if (tm == "translate" || tm == "polish") prefs[Keys.GST_TASK_MODE] = tm
+                }
+                if (tr.has("geminiAutoDetect")) {
+                    prefs[Keys.GST_AUTODETECT] = tr.optBoolean("geminiAutoDetect", true)
+                }
+                if (tr.has("geminiNameMode")) {
+                    val nm = tr.optString("geminiNameMode").trim()
+                    if (nm.isNotBlank()) prefs[Keys.GST_NAME_MODE] = nm
+                }
+                if (tr.has("geminiNotesTranslate")) {
+                    prefs[Keys.GST_NOTES_TR] = tr.optString("geminiNotesTranslate")
+                }
+                if (tr.has("geminiNotesPolish")) {
+                    prefs[Keys.GST_NOTES_PL] = tr.optString("geminiNotesPolish")
+                }
+                if (tr.has("geminiGlossary")) {
+                    prefs[Keys.GST_GLOSSARY] = tr.optString("geminiGlossary")
+                }
+                if (tr.has("geminiRelaxSafety")) {
+                    prefs[Keys.GST_SAFETY] = tr.optBoolean("geminiRelaxSafety", true)
+                }
+                if (tr.has("geminiIncludeAllLines")) {
+                    prefs[Keys.GST_ALL_LINES] = tr.optBoolean("geminiIncludeAllLines", false)
+                }
+                if (tr.has("geminiSlidingContext")) {
+                    prefs[Keys.GST_SLIDING_CTX] = tr.optBoolean("geminiSlidingContext", true)
+                }
+                if (tr.has("geminiCleanAds")) {
+                    prefs[Keys.GST_CLEAN_ADS] = tr.optBoolean("geminiCleanAds", true)
+                }
+                if (tr.has("geminiBilingual")) {
+                    prefs[Keys.GST_BILINGUAL] = tr.optBoolean("geminiBilingual", false)
+                }
+                if (tr.has("geminiTimeShiftSec")) {
+                    prefs[Keys.GST_SHIFT_SEC] = tr.optString("geminiTimeShiftSec", "0").trim().ifBlank { "0" }
+                }
+                if (tr.has("geminiAutoUploadPikPak")) {
+                    prefs[Keys.GST_AUTO_UP_PIKPAK] = tr.optBoolean("geminiAutoUploadPikPak", false)
+                }
+                if (tr.has("deeplModel")) {
+                    val dm = tr.optString("deeplModel").trim()
+                    if (dm.isNotBlank()) prefs[Keys.TR_DEEPL_MODEL] = dm
+                }
+                if (tr.has("deeplEndpoint")) {
+                    prefs[Keys.TR_DEEPL_ENDPOINT] = tr.optString("deeplEndpoint").trim()
+                }
+                if (tr.has("openaiModel")) {
+                    val om = tr.optString("openaiModel").trim()
+                    if (om.isNotBlank()) prefs[Keys.TR_OPENAI_MODEL] = om
+                }
+                if (tr.has("openaiEndpoint")) {
+                    prefs[Keys.TR_OPENAI_ENDPOINT] = tr.optString("openaiEndpoint").trim()
+                        .ifBlank { GeminiEngine.DEFAULT_OPENAI_ENDPOINT }
+                }
+            }
+        }
+
+        return BackupImportResult(
+            updatedPrefs = updatedPrefs,
+            restoredSensitiveKeys = restoredKeys,
+            rssFeedCount = importedRssCount,
+            customTrackerCount = importedCustomTrackerCount
+        )
+    }
+
     object Keys {
         val APP_LANGUAGE = stringPreferencesKey("app_language")
         val SUB_TARGET_LANG = stringPreferencesKey("sub_target_lang")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BROWSER_TAB_SWIPE = booleanPreferencesKey("browser_tab_swipe")
+
+        val DOH_PROVIDER = stringPreferencesKey("doh_provider")
+        val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
+        val APP_LOCK_PIN_HASH = stringPreferencesKey("app_lock_pin_hash")
+        val APP_LOCK_PIN_LEN = intPreferencesKey("app_lock_pin_len")
+        val APP_LOCK_BIOMETRIC = booleanPreferencesKey("app_lock_biometric")
+        val DISGUISE_MODE_ENABLED = booleanPreferencesKey("disguise_mode_enabled")
+        val AUTO_CLEAR_ON_EXIT = booleanPreferencesKey("auto_clear_on_exit")
 
         val UTA_SORT = stringPreferencesKey("uta_sort")
         val UTA_HIDE_DEAD = booleanPreferencesKey("uta_hide_dead")

@@ -1,5 +1,6 @@
 package com.torrenthub.aio.data
 
+import android.content.Context
 import com.torrenthub.aio.model.SubtitleItem
 import com.torrenthub.aio.model.SubtitleProvider
 import com.torrenthub.aio.network.HttpClient
@@ -17,6 +18,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,6 +34,59 @@ object SubtitleRepository {
     private const val SUBDL_DL = "https://dl.subdl.com/subtitle"
 
     val SUPPORTED_TEXT_EXTS = setOf("srt", "ass", "ssa", "vtt")
+
+    @Volatile
+    private var diskTempDir: File? = null
+
+    fun getTempSubtitlesDir(context: Context): File =
+        File(context.applicationContext.cacheDir, "subtitle_temp")
+
+    fun initDiskCache(context: Context) {
+        val dir = getTempSubtitlesDir(context)
+        runCatching { if (!dir.exists()) dir.mkdirs() }
+        diskTempDir = dir
+    }
+
+    private fun writeDiskTempEntry(keyUrl: String, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        val dir = diskTempDir ?: return
+        runCatching {
+            if (!dir.exists()) dir.mkdirs()
+            val target = File(dir, "${Formatters.md5Hex(keyUrl)}.sub.tmp")
+            target.writeBytes(bytes)
+            val files = dir.listFiles()
+            if (files != null && files.size > 48) {
+                files.sortedBy { it.lastModified() }
+                    .take(files.size - 40)
+                    .forEach { runCatching { it.delete() } }
+            }
+        }
+    }
+
+    private fun readDiskTempEntry(keyUrl: String): ByteArray? {
+        val dir = diskTempDir ?: return null
+        return runCatching {
+            val target = File(dir, "${Formatters.md5Hex(keyUrl)}.sub.tmp")
+            if (target.exists() && target.length() > 0L) target.readBytes() else null
+        }.getOrNull()
+    }
+
+    fun estimatedUnbackedMemoryBytes(): Long {
+        if (diskTempDir != null) return 0L
+        return synchronized(bytesCache) {
+            bytesCache.values.sumOf { it.size.toLong() }
+        }
+    }
+
+    fun clearCache(context: Context? = null) {
+        textCache.clear()
+        bytesCache.clear()
+        val dir = context?.let { getTempSubtitlesDir(it) } ?: diskTempDir
+        if (dir != null && dir.exists()) {
+            runCatching { dir.deleteRecursively() }
+            runCatching { dir.mkdirs() }
+        }
+    }
 
     private val textCache: MutableMap<String, String> = Collections.synchronizedMap(
         object : LinkedHashMap<String, String>(48, 0.75f, true) {
@@ -259,14 +314,8 @@ object SubtitleRepository {
         return list
     }
 
-    private fun openSubLangId(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
-        "id" -> "ind"
-        "en" -> "eng"
-        "zh" -> "chi"
-        "ja" -> "jpn"
-        "ko" -> "kor"
-        else -> "all"
-    }
+    private fun openSubLangId(targetLang: String): String =
+        SubtitleTargetLanguage.fromCode(targetLang).openSubIso3
 
     private suspend fun searchOpenSubtitles(q: String, targetLang: String): List<SubtitleItem> {
         val list = mutableListOf<SubtitleItem>()
@@ -498,6 +547,7 @@ object SubtitleRepository {
                         if (probe.fullBytes != null && item.ext in SUPPORTED_TEXT_EXTS) {
                             val unpacked = unpackArchiveIfNeeded(probe.fullBytes)
                             bytesCache[item.url] = unpacked
+                            writeDiskTempEntry(item.url, unpacked)
                             textCache[item.url] = SubtitleTools.decodeWithCharset(unpacked, SubtitleCharset.AUTO)
                         }
                         item.copy(sizeBytes = probe.sizeBytes)
@@ -512,6 +562,10 @@ object SubtitleRepository {
 
     suspend fun fetchSubtitleBytes(url: String, targetLang: String = "id"): ByteArray {
         bytesCache[url]?.let { if (it.isNotEmpty()) return it }
+        readDiskTempEntry(url)?.let { cachedDisk ->
+            bytesCache[url] = cachedDisk
+            return cachedDisk
+        }
         val resolvedUrl = resolveActualDownloadUrl(url, targetLang)
         bytesCache[resolvedUrl]?.let {
             if (it.isNotEmpty()) {
@@ -519,11 +573,18 @@ object SubtitleRepository {
                 return it
             }
         }
+        readDiskTempEntry(resolvedUrl)?.let { cachedDisk ->
+            bytesCache[url] = cachedDisk
+            bytesCache[resolvedUrl] = cachedDisk
+            return cachedDisk
+        }
         val downloaded = HttpClient.getBytes(resolvedUrl, headers = HttpClient.BROWSER_HTML_HEADERS, timeoutSec = 25L)
         val unpacked = unpackArchiveIfNeeded(downloaded)
         if (unpacked.isNotEmpty()) {
             bytesCache[url] = unpacked
             bytesCache[resolvedUrl] = unpacked
+            writeDiskTempEntry(url, unpacked)
+            if (resolvedUrl != url) writeDiskTempEntry(resolvedUrl, unpacked)
             textCache[url] = SubtitleTools.decodeWithCharset(unpacked, SubtitleCharset.AUTO)
         }
         return unpacked

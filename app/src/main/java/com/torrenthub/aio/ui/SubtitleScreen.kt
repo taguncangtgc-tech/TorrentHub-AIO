@@ -32,8 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.torrenthub.aio.R
-import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.SubtitleRepository
+import com.torrenthub.aio.data.SubtitleTargetLanguage
 import com.torrenthub.aio.model.SubtitleProvider
 import com.torrenthub.aio.util.Formatters
 import com.torrenthub.aio.util.SubtitleCharset
@@ -250,7 +250,7 @@ fun SubtitleScreen(vm: AppViewModel) {
                                 Text(
                                     stringResource(
                                         R.string.sub_target_chip,
-                                        "${vm.subtitleTargetLang.flag} ${languageDisplayLabel(vm.subtitleTargetLang)}"
+                                        "${vm.subtitleTargetLang.flag} ${subtitleLangDisplayLabel(vm.subtitleTargetLang)}"
                                     ),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -264,11 +264,11 @@ fun SubtitleScreen(vm: AppViewModel) {
                             expanded = showTargetLangMenu,
                             onDismissRequest = { showTargetLangMenu = false }
                         ) {
-                            AppLanguage.entries.forEach { lang ->
+                            SubtitleTargetLanguage.entries.forEach { lang ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            "${lang.flag} ${languageDisplayLabel(lang)}",
+                                            "${lang.flag} ${subtitleLangDisplayLabel(lang)}",
                                             fontWeight = if (vm.subtitleTargetLang == lang) FontWeight.Bold else FontWeight.Normal
                                         )
                                     },

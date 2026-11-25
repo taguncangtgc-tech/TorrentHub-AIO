@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
@@ -63,6 +65,7 @@ import coil.Coil
 import com.torrenthub.aio.data.SettingsRepository
 import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.ui.*
+import com.torrenthub.aio.util.AppSecurityHelper
 import com.torrenthub.aio.util.ExternalPlayerHelper
 import com.torrenthub.aio.util.LocaleHelper
 import com.torrenthub.aio.util.NotificationHelper
@@ -70,8 +73,13 @@ import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
 
+    private var activeBrowserHolder: BrowserWebViewHolder? = null
+    private var backgroundedAtMs: Long = 0L
+
     override fun attachBaseContext(newBase: Context) {
-        val langCode = SettingsRepository.getInstance(newBase).appLanguage.code
+        val repo = SettingsRepository.getInstance(newBase)
+        HttpClient.applyDohProvider(repo.dohProvider)
+        val langCode = repo.appLanguage.code
         super.attachBaseContext(LocaleHelper.wrapContext(newBase, langCode))
     }
 
@@ -85,8 +93,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val stoppedAt = backgroundedAtMs
+        backgroundedAtMs = 0L
+        if (stoppedAt > 0L && (System.currentTimeMillis() - stoppedAt) >= 60_000L) {
+            val vm = ViewModelProvider(this)[AppViewModel::class.java]
+            if (vm.appLockEnabled) {
+                vm.lockSessionNow()
+            }
+        }
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            backgroundedAtMs = System.currentTimeMillis()
+        }
+        if (isFinishing) {
+            performExitAutoClearIfEnabled()
+        }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            performExitAutoClearIfEnabled()
+        }
+        activeBrowserHolder = null
+        super.onDestroy()
+    }
+
+    private fun performExitAutoClearIfEnabled() {
+        val repo = SettingsRepository.getInstance(applicationContext)
+        if (repo.autoClearOnExit) {
+            runCatching {
+                val vm = ViewModelProvider(this)[AppViewModel::class.java]
+                vm.clearSearchAndBrowserHistoryNow(
+                    webView = activeBrowserHolder?.webView,
+                    silent = true,
+                    blockingPrefs = true
+                )
+            }.onFailure {
+                repo.clearPersistedSearchAndBrowserHistory(blocking = true)
+                AppSecurityHelper.clearWebViewSessionAndHistory(applicationContext, activeBrowserHolder?.webView)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val repo = SettingsRepository.getInstance(applicationContext)
+        HttpClient.applyDohProvider(repo.dohProvider)
+        if (savedInstanceState == null && repo.autoClearOnExit) {
+            repo.clearPersistedSearchAndBrowserHistory(blocking = false)
+            AppSecurityHelper.clearWebViewSessionAndHistory(applicationContext, null)
+        }
         Coil.setImageLoader(HttpClient.createImageLoader(applicationContext))
         enableEdgeToEdge()
         val openDownloadsInitial = intent?.getBooleanExtra(NotificationHelper.EXTRA_OPEN_DOWNLOADS, false) == true
@@ -96,6 +157,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             val activity = this@MainActivity
             val vm: AppViewModel = viewModel(viewModelStoreOwner = activity)
+            val useSecureFlag = vm.disguiseModeEnabled || vm.isAppLockedNow
+            LaunchedEffect(useSecureFlag) {
+                if (useSecureFlag) {
+                    activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
             LaunchedEffect(openDownloadsInitial) {
                 if (openDownloadsInitial) {
                     vm.showDownloadManagerDialog = true
@@ -117,7 +186,17 @@ class MainActivity : ComponentActivity() {
                 LocalViewModelStoreOwner provides activity
             ) {
                 TorrentHubTheme(themeMode = vm.themeMode) {
-                    MainAppShell(vm = vm)
+                    if (vm.isAppLockedNow) {
+                        AppLockScreen(
+                            vm = vm,
+                            onExitApp = { activity.finish() }
+                        )
+                    } else {
+                        MainAppShell(
+                            vm = vm,
+                            onBrowserHolderBound = { activeBrowserHolder = it }
+                        )
+                    }
                 }
             }
         }
@@ -136,6 +215,8 @@ private fun pageToTab(page: Int): Int = TAB_ORDER.getOrElse(page) { 0 }
 private fun PageWithHeader(
     title: String,
     activeDownloadsCount: Int,
+    showLockAction: Boolean,
+    onLockNow: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
     content: @Composable () -> Unit
@@ -151,6 +232,15 @@ private fun PageWithHeader(
                 )
             },
             actions = {
+                if (showLockAction) {
+                    IconButton(onClick = onLockNow) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = stringResource(R.string.cd_lock_app),
+                            tint = p.textPrimary
+                        )
+                    }
+                }
                 IconButton(onClick = onOpenDownloads) {
                     BadgedBox(
                         badge = {
@@ -193,7 +283,10 @@ private fun PageWithHeader(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppShell(vm: AppViewModel = viewModel()) {
+fun MainAppShell(
+    vm: AppViewModel = viewModel(),
+    onBrowserHolderBound: (BrowserWebViewHolder?) -> Unit = {}
+) {
     val p = AppTheme.palette
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -207,8 +300,12 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
     var lastSyncedPage by remember { mutableIntStateOf(pagerState.currentPage) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
-        onDispose { browserHolder.destroy() }
+    DisposableEffect(browserHolder) {
+        onBrowserHolderBound(browserHolder)
+        onDispose {
+            onBrowserHolderBound(null)
+            browserHolder.destroy()
+        }
     }
 
     LaunchedEffect(vm.browserTabSwipeEnabled) {
@@ -373,10 +470,14 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
         ) { page ->
+            val disguisedTitle = stringResource(R.string.disguise_app_title)
+            val showLockBtn = vm.appLockEnabled
             when (pageToTab(page)) {
                 0 -> PageWithHeader(
-                    title = stringResource(R.string.header_torrent),
+                    title = if (vm.disguiseModeEnabled) disguisedTitle else stringResource(R.string.header_torrent),
                     activeDownloadsCount = activeDlCount,
+                    showLockAction = showLockBtn,
+                    onLockNow = { vm.lockSessionNow() },
                     onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
@@ -394,24 +495,30 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
                     }
                 }
                 1 -> PageWithHeader(
-                    title = stringResource(R.string.header_subtitle),
+                    title = if (vm.disguiseModeEnabled) disguisedTitle else stringResource(R.string.header_subtitle),
                     activeDownloadsCount = activeDlCount,
+                    showLockAction = showLockBtn,
+                    onLockNow = { vm.lockSessionNow() },
                     onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     SubtitleScreen(vm)
                 }
                 2 -> PageWithHeader(
-                    title = stringResource(R.string.header_gemini),
+                    title = if (vm.disguiseModeEnabled) disguisedTitle else stringResource(R.string.header_gemini),
                     activeDownloadsCount = activeDlCount,
+                    showLockAction = showLockBtn,
+                    onLockNow = { vm.lockSessionNow() },
                     onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     GeminiScreen(vm)
                 }
                 3 -> PageWithHeader(
-                    title = stringResource(R.string.header_pikpak),
+                    title = if (vm.disguiseModeEnabled) disguisedTitle else stringResource(R.string.header_pikpak),
                     activeDownloadsCount = activeDlCount,
+                    showLockAction = showLockBtn,
+                    onLockNow = { vm.lockSessionNow() },
                     onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
@@ -424,6 +531,10 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
     if (vm.showSettingsDialog) {
         SettingsDialog(
             vm = vm,
+            activeWebView = browserHolder.webView,
+            onClearHistoryRequested = {
+                vm.clearSearchAndBrowserHistoryNow(webView = browserHolder.webView)
+            },
             onDismiss = { vm.showSettingsDialog = false }
         )
     }

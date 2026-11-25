@@ -12,9 +12,6 @@ object LocaleHelper {
 
     fun localeForCode(langCode: String): Locale = when (langCode.lowercase(Locale.ROOT)) {
         "en" -> Locale.ENGLISH
-        "zh" -> Locale.SIMPLIFIED_CHINESE
-        "ja" -> Locale.JAPANESE
-        "ko" -> Locale.KOREAN
         else -> Locale.forLanguageTag("id-ID")
     }
 

@@ -34,18 +34,30 @@
 
     <!-- Settings Screen -->
     <string name="settings_title">⚙️ App Settings</string>
-    <string name="settings_subtitle">Language, subtitle translation, theme &amp; navigation controls</string>
+    <string name="settings_subtitle">Language, DNS-over-HTTPS, privacy lock, subtitles &amp; theme</string>
     <string name="settings_section_language">🌐 Language &amp; Translation</string>
-    <string name="settings_app_language">App Language</string>
-    <string name="settings_app_language_desc">Applied immediately across all screens</string>
+    <string name="settings_app_language">Interface Language (UI)</string>
+    <string name="settings_app_language_desc">Applied immediately across the app interface (Indonesian / English)</string>
     <string name="settings_sub_target_lang">Subtitle Translation Target Language</string>
-    <string name="settings_sub_target_lang_desc">Target output language when translating or polishing subtitles with Gemini</string>
+    <string name="settings_sub_target_lang_desc">Target output language when searching, translating, or polishing subtitles</string>
 
     <string name="lang_id">Indonesia</string>
     <string name="lang_en">English</string>
     <string name="lang_zh">中文 (Mandarin)</string>
+    <string name="lang_zh_tw">繁體中文 (Traditional)</string>
     <string name="lang_ja">日本語 (Japanese)</string>
     <string name="lang_ko">한국어 (Korean)</string>
+    <string name="lang_ms">Bahasa Melayu (Malay)</string>
+    <string name="lang_ar">العربية (Arabic)</string>
+    <string name="lang_es">Español (Spanish)</string>
+    <string name="lang_fr">Français (French)</string>
+    <string name="lang_de">Deutsch (German)</string>
+    <string name="lang_pt">Português (Portuguese)</string>
+    <string name="lang_ru">Русский (Russian)</string>
+    <string name="lang_hi">हिन्दी (Hindi)</string>
+    <string name="lang_th">ไทย (Thai)</string>
+    <string name="lang_vi">Tiếng Việt (Vietnamese)</string>
+    <string name="lang_tr">Türkçe (Turkish)</string>
 
     <string name="settings_section_appearance">🎨 Appearance &amp; Theme</string>
     <string name="settings_theme_mode">Display Theme</string>
@@ -519,4 +531,94 @@
     <string name="toast_rss_invalid_url">⚠️ Please enter a valid http:// or https:// RSS URL.</string>
     <string name="toast_rss_refreshed">📡 Loaded %1$d RSS items (%2$d keyword matches)!</string>
     <string name="toast_rss_keyword_added">🎯 Watch keyword added: %1$s</string>
+
+    <!-- Phase 5A: DNS-over-HTTPS (DoH), App Lock (PIN / Biometric) & Disguise Mode -->
+    <string name="settings_section_doh">🌐 DNS-over-HTTPS (DoH) Anti-Block</string>
+    <string name="settings_doh_desc">Bypass ISP DNS blocking on torrent, subtitle, and tracker sites without a VPN using encrypted HTTPS DNS</string>
+    <string name="doh_provider_off">⚪ Disabled (System)</string>
+    <string name="doh_provider_off_desc">Use your device network or ISP default DNS resolver</string>
+    <string name="doh_provider_cloudflare">☁️ Cloudflare (1.1.1.1)</string>
+    <string name="doh_provider_cloudflare_desc">Fast &amp; privacy-first · https://cloudflare-dns.com/dns-query</string>
+    <string name="doh_provider_google">🔍 Google (8.8.8.8)</string>
+    <string name="doh_provider_google_desc">Globally reliable · https://dns.google/dns-query</string>
+    <string name="doh_provider_quad9">🛡️ Quad9 (9.9.9.9)</string>
+    <string name="doh_provider_quad9_desc">Malware protection &amp; Swiss privacy · https://dns.quad9.net/dns-query</string>
+    <string name="settings_doh_btn_test">⚡ Test DoH Connection</string>
+    <string name="settings_doh_testing">⏳ Testing DNS…</string>
+    <string name="toast_doh_changed">🌐 DNS server set to: %1$s</string>
+    <string name="toast_doh_test_ok">✅ %1$s active: %2$s (%3$d ms)</string>
+    <string name="toast_doh_test_fail">❌ DNS test failed: %1$s</string>
+
+    <string name="cd_lock_app">Lock App</string>
+    <string name="disguise_app_title">📁 Media &amp; Subtitle Utility</string>
+    <string name="settings_section_security">🔒 App Lock &amp; Disguise Mode</string>
+    <string name="settings_security_desc">Protect privacy with a 4–6 digit PIN or device BiometricPrompt, screen disguise mode, and automatic history cleanup</string>
+    <string name="settings_applock_enable">Enable App Lock (PIN / Biometric)</string>
+    <string name="settings_applock_enable_desc">Require a 4–6 digit PIN or device biometrics when opening the app</string>
+    <string name="settings_applock_biometric">Unlock with Device Biometrics</string>
+    <string name="settings_applock_biometric_desc">Automatically show Android BiometricPrompt on the lock screen</string>
+    <string name="settings_applock_biometric_unavailable">No enrolled biometrics detected on this device (PIN fallback active)</string>
+    <string name="settings_applock_btn_setup_pin">🔑 Set PIN</string>
+    <string name="settings_applock_btn_change_pin">🔑 Change PIN</string>
+    <string name="settings_applock_btn_lock_now">🔒 Lock Now</string>
+    <string name="settings_disguise_enable">Disguise Mode (Hide in Recent Apps &amp; Neutral Header)</string>
+    <string name="settings_disguise_enable_desc">Blank out app preview in Recent Apps (block screenshots) and disguise the app header title</string>
+    <string name="settings_autoclear_exit">Auto-Clear Search &amp; Browser History on Exit</string>
+    <string name="settings_autoclear_exit_desc">Automatically wipe search queries, last URL, cache, form data, cookies &amp; WebView history when exiting the app</string>
+    <string name="settings_btn_clear_history_now">🧹 Clear Search &amp; Browser History Now</string>
+
+    <string name="applock_screen_title">🔒 TorrentHub AIO Locked</string>
+    <string name="applock_screen_subtitle">Enter your 4–6 digit PIN or authenticate with biometrics</string>
+    <string name="applock_prompt_title">Unlock Application</string>
+    <string name="applock_prompt_subtitle">Verify your identity to access the app</string>
+    <string name="applock_btn_use_pin">Use PIN</string>
+    <string name="applock_btn_unlock">🔓 Unlock</string>
+    <string name="applock_btn_biometric">Unlock with Biometrics</string>
+    <string name="applock_dialog_setup_title">🔑 Create App Lock PIN (4–6 Digits)</string>
+    <string name="applock_dialog_change_title">🔑 Change App Lock PIN</string>
+    <string name="applock_dialog_disable_title">🔓 Disable App Lock</string>
+    <string name="applock_dialog_setup_desc">Enter a 4 to 6 digit numeric PIN to protect access to the app.</string>
+    <string name="applock_dialog_disable_desc">Enter your current active PIN to turn off App Lock.</string>
+    <string name="applock_field_current_pin">Current PIN</string>
+    <string name="applock_field_new_pin">New PIN (4–6 digits)</string>
+    <string name="applock_field_confirm_pin">Confirm New PIN</string>
+    <string name="applock_error_wrong_pin">❌ Incorrect PIN, please try again.</string>
+    <string name="applock_error_biometric_failed">⚠️ Biometric not recognized, try again or enter PIN.</string>
+    <string name="applock_error_pin_format">⚠️ PIN must be 4 to 6 numeric digits (0–9).</string>
+    <string name="applock_error_pin_mismatch">⚠️ New PIN confirmation does not match.</string>
+
+    <string name="toast_applock_enabled">🔒 App Lock enabled!</string>
+    <string name="toast_applock_disabled">🔓 App Lock disabled.</string>
+    <string name="toast_disguise_on">🕵️ Disguise Mode ON (Recent Apps &amp; Header disguised)</string>
+    <string name="toast_disguise_off">⚪ Disguise Mode OFF</string>
+    <string name="toast_history_cleared">🧹 Search &amp; Browser history cleared!</string>
+
+    <!-- Phase 5B: JSON Settings Backup/Restore & Storage Cache Management -->
+    <string name="settings_section_backup">💾 Backup &amp; Restore Settings (JSON)</string>
+    <string name="settings_backup_desc">Export and import all app preferences (language, theme, DoH, custom tracker list, RSS subscriptions, and translation provider config) to/from a JSON file</string>
+    <string name="settings_backup_scope_summary">Ready to back up: %1$d RSS feeds · %2$d custom trackers · Translator: %3$s</string>
+    <string name="settings_backup_include_keys">Include Sensitive API Keys on Export</string>
+    <string name="settings_backup_include_keys_off_desc">Safe to share: Gemini, DeepL, and OpenAI API keys are excluded from the JSON file</string>
+    <string name="settings_backup_include_keys_on_desc">⚠️ API keys are included in the JSON file — store your backup securely</string>
+    <string name="settings_backup_btn_export">📤 Export JSON</string>
+    <string name="settings_backup_btn_import">📥 Import JSON</string>
+    <string name="toast_backup_export_ok_no_keys">✅ Settings exported to JSON (API keys excluded)!</string>
+    <string name="toast_backup_export_ok_with_keys">✅ Settings &amp; API keys exported to JSON!</string>
+    <string name="toast_backup_export_fail">❌ Failed to export settings: %1$s</string>
+    <string name="toast_backup_import_ok">✅ Settings restored from JSON file!</string>
+    <string name="toast_backup_import_ok_with_keys">✅ Settings &amp; API keys restored from JSON file!</string>
+    <string name="toast_backup_import_fail">❌ Failed to import JSON file: %1$s</string>
+
+    <string name="cd_refresh_storage">Recalculate Storage</string>
+    <string name="settings_section_storage">🗄️ Storage Management &amp; Cache</string>
+    <string name="settings_storage_desc">View estimated storage space used and clean up temporary cache or app history with a single tap</string>
+    <string name="settings_storage_total_label">Estimated Space Used</string>
+    <string name="settings_storage_scanning">⏳ Calculating…</string>
+    <string name="settings_storage_webview_cache">WebView &amp; Network Cache</string>
+    <string name="settings_storage_subtitle_temp">Temporary Subtitle Files</string>
+    <string name="settings_storage_history_logs">App History &amp; Logs</string>
+    <string name="settings_storage_btn_clear_cache">🧹 Clear WebView Cache &amp; Temp Subtitles</string>
+    <string name="settings_storage_btn_reset_history">🗑️ Reset App History &amp; Logs</string>
+    <string name="toast_storage_cache_cleared">🧹 WebView cache &amp; temporary subtitles cleared (%1$s freed)!</string>
+    <string name="toast_storage_history_reset">🗑️ Search history, Browser &amp; app logs reset!</string>
 </resources>

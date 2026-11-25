@@ -19,6 +19,18 @@ import java.io.IOException
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
+enum class DohProvider(val id: String, val endpointUrl: String, val primaryIp: String) {
+    OFF("off", "", ""),
+    CLOUDFLARE("cloudflare", "https://cloudflare-dns.com/dns-query", "1.1.1.1"),
+    GOOGLE("google", "https://dns.google/dns-query", "8.8.8.8"),
+    QUAD9("quad9", "https://dns.quad9.net/dns-query", "9.9.9.9");
+
+    companion object {
+        fun fromId(id: String?): DohProvider =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: CLOUDFLARE
+    }
+}
+
 class HttpStatusException(val code: Int, override val message: String, val rawBody: String = "") : IOException(message)
 
 object HttpClient {
@@ -31,7 +43,21 @@ object HttpClient {
     )
 
     @Volatile
-    var useDoh: Boolean = true
+    var dohProvider: DohProvider = DohProvider.CLOUDFLARE
+        private set
+
+    val useDoh: Boolean
+        get() = dohProvider != DohProvider.OFF
+
+    private var okHttpInitialized = false
+
+    fun applyDohProvider(provider: DohProvider) {
+        val changed = dohProvider != provider
+        dohProvider = provider
+        if (changed && okHttpInitialized) {
+            runCatching { okHttp.connectionPool.evictAll() }
+        }
+    }
 
     private val bootstrapClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -43,11 +69,12 @@ object HttpClient {
     private val cloudflareDoh: DnsOverHttps by lazy {
         DnsOverHttps.Builder()
             .client(bootstrapClient)
-            .url("https://cloudflare-dns.com/dns-query".toHttpUrl())
+            .url(DohProvider.CLOUDFLARE.endpointUrl.toHttpUrl())
             .bootstrapDnsHosts(
                 InetAddress.getByName("1.1.1.1"),
                 InetAddress.getByName("1.0.0.1"),
-                InetAddress.getByName("2606:4700:4700::1111")
+                InetAddress.getByName("2606:4700:4700::1111"),
+                InetAddress.getByName("2606:4700:4700::1001")
             )
             .build()
     }
@@ -55,29 +82,60 @@ object HttpClient {
     private val googleDoh: DnsOverHttps by lazy {
         DnsOverHttps.Builder()
             .client(bootstrapClient)
-            .url("https://dns.google/dns-query".toHttpUrl())
+            .url(DohProvider.GOOGLE.endpointUrl.toHttpUrl())
             .bootstrapDnsHosts(
                 InetAddress.getByName("8.8.8.8"),
-                InetAddress.getByName("8.8.4.4")
+                InetAddress.getByName("8.8.4.4"),
+                InetAddress.getByName("2001:4860:4860::8888"),
+                InetAddress.getByName("2001:4860:4860::8844")
             )
             .build()
     }
 
-    // Smart Resilient DNS: Cloudflare DoH -> Google DoH -> System DNS
+    private val quad9Doh: DnsOverHttps by lazy {
+        DnsOverHttps.Builder()
+            .client(bootstrapClient)
+            .url(DohProvider.QUAD9.endpointUrl.toHttpUrl())
+            .bootstrapDnsHosts(
+                InetAddress.getByName("9.9.9.9"),
+                InetAddress.getByName("149.112.112.112"),
+                InetAddress.getByName("2620:fe::fe"),
+                InetAddress.getByName("2620:fe::9")
+            )
+            .build()
+    }
+
+    private fun activeDohResolver(provider: DohProvider): DnsOverHttps? = when (provider) {
+        DohProvider.OFF -> null
+        DohProvider.CLOUDFLARE -> cloudflareDoh
+        DohProvider.GOOGLE -> googleDoh
+        DohProvider.QUAD9 -> quad9Doh
+    }
+
+    // Configurable DNS-over-HTTPS with resilient fallback to System DNS for local/captive hosts
     private val smartDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
-            if (useDoh) {
+            val active = activeDohResolver(dohProvider)
+            if (active != null) {
                 try {
-                    val res = cloudflareDoh.lookup(hostname)
-                    if (res.isNotEmpty()) return res
-                } catch (_: Exception) {}
-                try {
-                    val res = googleDoh.lookup(hostname)
+                    val res = active.lookup(hostname)
                     if (res.isNotEmpty()) return res
                 } catch (_: Exception) {}
             }
             return Dns.SYSTEM.lookup(hostname)
         }
+    }
+
+    suspend fun testActiveDns(testHost: String = "one.one.one.one"): Pair<String, Long> = withContext(Dispatchers.IO) {
+        val t0 = System.currentTimeMillis()
+        val providerSnap = dohProvider
+        val addresses = when (val resolver = activeDohResolver(providerSnap)) {
+            null -> Dns.SYSTEM.lookup(testHost)
+            else -> resolver.lookup(testHost)
+        }
+        val elapsed = System.currentTimeMillis() - t0
+        val firstIp = addresses.firstOrNull()?.hostAddress ?: "-"
+        firstIp to elapsed
     }
 
     val okHttp: OkHttpClient by lazy {
@@ -100,6 +158,7 @@ object HttpClient {
                 chain.proceed(b.build())
             }
             .build()
+            .also { okHttpInitialized = true }
     }
 
     val longTimeoutHttp: OkHttpClient by lazy {

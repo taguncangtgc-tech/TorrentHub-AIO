@@ -14,18 +14,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -38,33 +47,88 @@ import com.torrenthub.aio.R
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.AppThemeMode
 import com.torrenthub.aio.data.GeminiEngine
+import com.torrenthub.aio.data.SubtitleTargetLanguage
 import com.torrenthub.aio.model.TranslationProvider
+import com.torrenthub.aio.network.DohProvider
+import com.torrenthub.aio.util.AppSecurityHelper
 import com.torrenthub.aio.util.Formatters
+import com.torrenthub.aio.util.StorageManagerHelper
 import com.torrenthub.aio.util.TrackerManager
 
 @Composable
-fun languageDisplayLabel(lang: AppLanguage): String = when (lang) {
+fun uiLanguageDisplayLabel(lang: AppLanguage): String = when (lang) {
     AppLanguage.ID -> stringResource(R.string.lang_id)
     AppLanguage.EN -> stringResource(R.string.lang_en)
-    AppLanguage.ZH -> stringResource(R.string.lang_zh)
-    AppLanguage.JA -> stringResource(R.string.lang_ja)
-    AppLanguage.KO -> stringResource(R.string.lang_ko)
+}
+
+@Composable
+fun subtitleLangDisplayLabel(lang: SubtitleTargetLanguage): String = when (lang) {
+    SubtitleTargetLanguage.ID -> stringResource(R.string.lang_id)
+    SubtitleTargetLanguage.EN -> stringResource(R.string.lang_en)
+    SubtitleTargetLanguage.ZH -> stringResource(R.string.lang_zh)
+    SubtitleTargetLanguage.ZH_TW -> stringResource(R.string.lang_zh_tw)
+    SubtitleTargetLanguage.JA -> stringResource(R.string.lang_ja)
+    SubtitleTargetLanguage.KO -> stringResource(R.string.lang_ko)
+    SubtitleTargetLanguage.MS -> stringResource(R.string.lang_ms)
+    SubtitleTargetLanguage.AR -> stringResource(R.string.lang_ar)
+    SubtitleTargetLanguage.ES -> stringResource(R.string.lang_es)
+    SubtitleTargetLanguage.FR -> stringResource(R.string.lang_fr)
+    SubtitleTargetLanguage.DE -> stringResource(R.string.lang_de)
+    SubtitleTargetLanguage.PT -> stringResource(R.string.lang_pt)
+    SubtitleTargetLanguage.RU -> stringResource(R.string.lang_ru)
+    SubtitleTargetLanguage.HI -> stringResource(R.string.lang_hi)
+    SubtitleTargetLanguage.TH -> stringResource(R.string.lang_th)
+    SubtitleTargetLanguage.VI -> stringResource(R.string.lang_vi)
+    SubtitleTargetLanguage.TR -> stringResource(R.string.lang_tr)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsDialog(
     vm: AppViewModel,
+    activeWebView: android.webkit.WebView? = null,
+    onClearHistoryRequested: () -> Unit = { vm.clearSearchAndBrowserHistoryNow(webView = activeWebView) },
     onDismiss: () -> Unit
 ) {
     val p = AppTheme.palette
+    val context = LocalContext.current
+    val activity = AppSecurityHelper.findActivity(LocalView.current.context)
+        ?: AppSecurityHelper.findActivity(context)
+    val biometricAvailable = remember(activity) {
+        activity != null && AppSecurityHelper.isBiometricAvailable(activity)
+    }
+
     var showAutoPairVideoModal by remember { mutableStateOf(false) }
+    var activePinDialogMode by remember { mutableStateOf<PinDialogMode?>(null) }
+    val disableBioTitle = stringResource(R.string.applock_dialog_disable_title)
+    val disableBioSub = stringResource(R.string.applock_prompt_subtitle)
+    val usePinBtnTxt = stringResource(R.string.applock_btn_use_pin)
+
+    LaunchedEffect(Unit) {
+        vm.refreshStorageUsage()
+    }
 
     val safFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
             vm.updateAutoPairFolder(uri)
+        }
+    }
+
+    val backupExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            vm.exportSettingsBackupToUri(uri, vm.includeSensitiveKeysOnExport)
+        }
+    }
+
+    val backupImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            vm.importSettingsBackupFromUri(uri)
         }
     }
 
@@ -165,7 +229,7 @@ fun SettingsDialog(
                                     AppLanguage.entries.forEach { lang ->
                                         LanguageOptionChip(
                                             flag = lang.flag,
-                                            label = languageDisplayLabel(lang),
+                                            label = uiLanguageDisplayLabel(lang),
                                             selected = vm.appLanguage == lang,
                                             onClick = { vm.updateAppLanguage(lang) }
                                         )
@@ -191,15 +255,334 @@ fun SettingsDialog(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    AppLanguage.entries.forEach { lang ->
+                                    SubtitleTargetLanguage.entries.forEach { lang ->
                                         LanguageOptionChip(
                                             flag = lang.flag,
-                                            label = languageDisplayLabel(lang),
+                                            label = subtitleLangDisplayLabel(lang),
                                             selected = vm.subtitleTargetLang == lang,
                                             onClick = { vm.updateSubtitleTargetLang(lang) }
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Section 1B: DNS-over-HTTPS (DoH) Network Anti-Block
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_doh),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_doh_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.doh_provider_off),
+                                    subtitle = stringResource(R.string.doh_provider_off_desc),
+                                    selected = vm.dohProvider == DohProvider.OFF,
+                                    onClick = { vm.updateDohProvider(DohProvider.OFF) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.doh_provider_cloudflare),
+                                    subtitle = stringResource(R.string.doh_provider_cloudflare_desc),
+                                    selected = vm.dohProvider == DohProvider.CLOUDFLARE,
+                                    onClick = { vm.updateDohProvider(DohProvider.CLOUDFLARE) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.doh_provider_google),
+                                    subtitle = stringResource(R.string.doh_provider_google_desc),
+                                    selected = vm.dohProvider == DohProvider.GOOGLE,
+                                    onClick = { vm.updateDohProvider(DohProvider.GOOGLE) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.doh_provider_quad9),
+                                    subtitle = stringResource(R.string.doh_provider_quad9_desc),
+                                    selected = vm.dohProvider == DohProvider.QUAD9,
+                                    onClick = { vm.updateDohProvider(DohProvider.QUAD9) }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                OutlinedButton(
+                                    onClick = { vm.testDohConnection() },
+                                    enabled = !vm.isTestingDoh
+                                ) {
+                                    Text(
+                                        text = if (vm.isTestingDoh) stringResource(R.string.settings_doh_testing)
+                                        else stringResource(R.string.settings_doh_btn_test),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 1C: App Lock (PIN / Biometric), Disguise Mode & Auto-Clear on Exit
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_security),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_security_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            fun requestToggleAppLock(enable: Boolean) {
+                                if (enable) {
+                                    if (vm.hasPinConfigured) {
+                                        vm.enableAppLockWithExistingPin()
+                                    } else {
+                                        activePinDialogMode = PinDialogMode.SETUP_NEW
+                                    }
+                                } else {
+                                    if (vm.appLockBiometricEnabled && biometricAvailable && activity != null) {
+                                        AppSecurityHelper.authenticateBiometric(
+                                            activity = activity,
+                                            title = disableBioTitle,
+                                            subtitle = disableBioSub,
+                                            negativeButtonText = usePinBtnTxt,
+                                            onSuccess = { vm.disableAppLockConfirmed() },
+                                            onError = { activePinDialogMode = PinDialogMode.VERIFY_TO_DISABLE }
+                                        )
+                                    } else {
+                                        activePinDialogMode = PinDialogMode.VERIFY_TO_DISABLE
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { requestToggleAppLock(!vm.appLockEnabled) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_applock_enable),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_applock_enable_desc),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.appLockEnabled,
+                                    onCheckedChange = { requestToggleAppLock(it) }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        activePinDialogMode = if (vm.hasPinConfigured) {
+                                            PinDialogMode.CHANGE_EXISTING
+                                        } else {
+                                            PinDialogMode.SETUP_NEW
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (vm.hasPinConfigured) stringResource(R.string.settings_applock_btn_change_pin)
+                                        else stringResource(R.string.settings_applock_btn_setup_pin),
+                                        fontSize = 11.5.sp
+                                    )
+                                }
+                                if (vm.appLockEnabled) {
+                                    OutlinedButton(
+                                        onClick = { vm.lockSessionNow() },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(stringResource(R.string.settings_applock_btn_lock_now), fontSize = 11.5.sp)
+                                    }
+                                }
+                            }
+
+                            if (vm.appLockEnabled || vm.hasPinConfigured) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { vm.updateAppLockBiometric(!vm.appLockBiometricEnabled) }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.settings_applock_biometric),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = p.textPrimary
+                                        )
+                                        Text(
+                                            text = if (biometricAvailable) {
+                                                stringResource(R.string.settings_applock_biometric_desc)
+                                            } else {
+                                                stringResource(R.string.settings_applock_biometric_unavailable)
+                                            },
+                                            fontSize = 11.5.sp,
+                                            color = if (biometricAvailable) p.textMuted else p.accentAmber
+                                        )
+                                    }
+                                    Switch(
+                                        checked = vm.appLockBiometricEnabled,
+                                        onCheckedChange = { vm.updateAppLockBiometric(it) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = p.borderColor)
+
+                            // Disguise Mode Toggle (FLAG_SECURE + Neutral Header)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.updateDisguiseMode(!vm.disguiseModeEnabled) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_disguise_enable),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_disguise_enable_desc),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.disguiseModeEnabled,
+                                    onCheckedChange = { vm.updateDisguiseMode(it) }
+                                )
+                            }
+
+                            HorizontalDivider(color = p.borderColor)
+
+                            // Auto-Clear Search & Browser History on Exit
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.updateAutoClearOnExit(!vm.autoClearOnExit) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_autoclear_exit),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_autoclear_exit_desc),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.autoClearOnExit,
+                                    onCheckedChange = { vm.updateAutoClearOnExit(it) }
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    onClearHistoryRequested()
+                                    vm.refreshStorageUsage()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = null,
+                                    tint = p.accentRed,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_btn_clear_history_now),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = p.accentRed
+                                )
                             }
                         }
                     }
@@ -937,6 +1320,316 @@ fun SettingsDialog(
                             }
                         }
                     }
+
+                    // Section 7: Backup & Restore Settings to/from JSON (SAF)
+                    val customTrackerCount = remember(vm.customTrackersRaw) {
+                        TrackerManager.parseTrackers(vm.customTrackersRaw).size
+                    }
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_backup),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_backup_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            Surface(
+                                color = p.subCardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, p.borderColor),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.settings_backup_scope_summary,
+                                        vm.rssFeeds.size,
+                                        customTrackerCount,
+                                        vm.translationProviderDisplayName(vm.translationProvider)
+                                    ),
+                                    fontSize = 11.5.sp,
+                                    color = p.textSecondary,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.includeSensitiveKeysOnExport = !vm.includeSensitiveKeysOnExport }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_backup_include_keys),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = if (vm.includeSensitiveKeysOnExport) {
+                                            stringResource(R.string.settings_backup_include_keys_on_desc)
+                                        } else {
+                                            stringResource(R.string.settings_backup_include_keys_off_desc)
+                                        },
+                                        fontSize = 11.5.sp,
+                                        color = if (vm.includeSensitiveKeysOnExport) p.accentAmber else p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.includeSensitiveKeysOnExport,
+                                    onCheckedChange = { vm.includeSensitiveKeysOnExport = it }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        backupExportLauncher.launch(StorageManagerHelper.buildDefaultBackupFileName())
+                                    },
+                                    enabled = !vm.isBackupBusy,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SaveAlt,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.settings_backup_btn_export),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        backupImportLauncher.launch(
+                                            arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")
+                                        )
+                                    },
+                                    enabled = !vm.isBackupBusy,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FileOpen,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.settings_backup_btn_import),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 8: Storage Management & Cache Cleanup
+                    val usage = vm.storageUsage
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_section_storage),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp,
+                                    color = p.accentBlue,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { vm.refreshStorageUsage() },
+                                    enabled = !vm.isScanningStorage && !vm.isCleaningStorage,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = stringResource(R.string.cd_refresh_storage),
+                                        tint = p.textSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.settings_storage_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            Surface(
+                                color = p.subCardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, p.borderColor),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.settings_storage_total_label),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = p.textPrimary
+                                        )
+                                        Text(
+                                            text = if (vm.isScanningStorage) {
+                                                stringResource(R.string.settings_storage_scanning)
+                                            } else {
+                                                StorageManagerHelper.formatStorageSize(usage.totalBytes)
+                                            },
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 13.sp,
+                                            color = p.accentBlue
+                                        )
+                                    }
+
+                                    if (usage.totalBytes > 0L) {
+                                        val totalF = usage.totalBytes.toFloat().coerceAtLeast(1f)
+                                        val wWeb = (usage.webViewCacheBytes.toFloat() / totalF).coerceAtLeast(0f)
+                                        val wSub = (usage.subtitleTempBytes.toFloat() / totalF).coerceAtLeast(0f)
+                                        val wHist = (usage.historyAndLogsBytes.toFloat() / totalF).coerceAtLeast(0f)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(7.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(p.borderColor)
+                                        ) {
+                                            if (wWeb > 0f) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(wWeb)
+                                                        .fillMaxHeight()
+                                                        .background(p.accentBlue)
+                                                )
+                                            }
+                                            if (wSub > 0f) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(wSub)
+                                                        .fillMaxHeight()
+                                                        .background(p.accentGreen)
+                                                )
+                                            }
+                                            if (wHist > 0f) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(wHist)
+                                                        .fillMaxHeight()
+                                                        .background(p.accentAmber)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = p.borderColor)
+
+                                    StorageBreakdownRow(
+                                        dotColor = p.accentBlue,
+                                        label = stringResource(R.string.settings_storage_webview_cache),
+                                        sizeText = StorageManagerHelper.formatStorageSize(usage.webViewCacheBytes)
+                                    )
+                                    StorageBreakdownRow(
+                                        dotColor = p.accentGreen,
+                                        label = stringResource(R.string.settings_storage_subtitle_temp),
+                                        sizeText = StorageManagerHelper.formatStorageSize(usage.subtitleTempBytes)
+                                    )
+                                    StorageBreakdownRow(
+                                        dotColor = p.accentAmber,
+                                        label = stringResource(R.string.settings_storage_history_logs),
+                                        sizeText = StorageManagerHelper.formatStorageSize(usage.historyAndLogsBytes)
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { vm.clearWebViewAndSubtitleCache(activeWebView) },
+                                enabled = !vm.isCleaningStorage,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CleaningServices,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_storage_btn_clear_cache),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = { vm.resetAppHistoryAndLogs(activeWebView) },
+                                enabled = !vm.isCleaningStorage,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = null,
+                                    tint = p.accentRed,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_storage_btn_reset_history),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = p.accentRed
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Footer close button
@@ -975,6 +1668,58 @@ fun SettingsDialog(
             subtitleToSaveContent = null,
             hintQuery = vm.subtitleQuery,
             onDismiss = { showAutoPairVideoModal = false }
+        )
+    }
+
+    activePinDialogMode?.let { dialogMode ->
+        PinSetupOrVerifyDialog(
+            vm = vm,
+            mode = dialogMode,
+            onDismiss = { activePinDialogMode = null },
+            onCompleted = { activePinDialogMode = null }
+        )
+    }
+}
+
+@Composable
+private fun StorageBreakdownRow(
+    dotColor: Color,
+    label: String,
+    sizeText: String
+) {
+    val p = AppTheme.palette
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = p.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = sizeText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            color = p.textPrimary
         )
     }
 }

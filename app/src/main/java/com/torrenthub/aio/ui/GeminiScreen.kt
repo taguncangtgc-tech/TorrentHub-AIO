@@ -31,8 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.torrenthub.aio.R
-import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.GeminiEngine
+import com.torrenthub.aio.data.SubtitleTargetLanguage
 import com.torrenthub.aio.model.GeminiJob
 import com.torrenthub.aio.model.TranslationProvider
 import com.torrenthub.aio.util.SubtitleCharset
@@ -169,7 +169,7 @@ fun GeminiScreen(vm: AppViewModel) {
     val freeCount = parsedKeys.count { !GeminiEngine.isOpenRouterKey(it) }
     val orCount = parsedKeys.count { GeminiEngine.isOpenRouterKey(it) }
 
-    val targetLangDisplay = languageDisplayLabel(vm.subtitleTargetLang)
+    val targetLangDisplay = subtitleLangDisplayLabel(vm.subtitleTargetLang)
     val statusDisplay = vm.geminiStatusText ?: stringResource(R.string.gemini_status_ready)
     val previewLogDisplay = vm.geminiPreviewLog ?: stringResource(R.string.gemini_preview_idle)
 
@@ -499,9 +499,9 @@ fun GeminiScreen(vm: AppViewModel) {
                         expanded = targetLangDropdownOpen,
                         onDismissRequest = { targetLangDropdownOpen = false }
                     ) {
-                        AppLanguage.entries.forEach { lang ->
+                        SubtitleTargetLanguage.entries.forEach { lang ->
                             DropdownMenuItem(
-                                text = { Text("${lang.flag} ${languageDisplayLabel(lang)}") },
+                                text = { Text("${lang.flag} ${subtitleLangDisplayLabel(lang)}") },
                                 onClick = {
                                     vm.updateSubtitleTargetLang(lang)
                                     targetLangDropdownOpen = false

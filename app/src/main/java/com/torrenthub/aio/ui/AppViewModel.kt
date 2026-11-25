@@ -13,15 +13,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.datastore.preferences.core.Preferences
+import coil.Coil
+import coil.annotation.ExperimentalCoilApi
 import com.torrenthub.aio.R
 import com.torrenthub.aio.data.AppDownloadManager
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.AppThemeMode
 import com.torrenthub.aio.data.GeminiEngine
 import com.torrenthub.aio.data.PikPakClient
+import com.torrenthub.aio.data.PreviewRepository
 import com.torrenthub.aio.data.RssRepository
 import com.torrenthub.aio.data.SettingsRepository
 import com.torrenthub.aio.data.SubtitleRepository
+import com.torrenthub.aio.data.SubtitleTargetLanguage
 import com.torrenthub.aio.data.TorrentRepository
 import com.torrenthub.aio.data.UserscriptManager
 import com.torrenthub.aio.model.BrowserBookmark
@@ -45,11 +50,15 @@ import com.torrenthub.aio.model.TorrentItem
 import com.torrenthub.aio.model.TranslationProvider
 import com.torrenthub.aio.model.UserscriptItem
 import com.torrenthub.aio.model.UserscriptMenuCmd
+import com.torrenthub.aio.network.DohProvider
 import com.torrenthub.aio.network.HttpClient
+import com.torrenthub.aio.util.AppSecurityHelper
 import com.torrenthub.aio.util.Formatters
 import com.torrenthub.aio.util.LocaleHelper
 import com.torrenthub.aio.util.NotificationHelper
 import com.torrenthub.aio.util.SafSubtitleHelper
+import com.torrenthub.aio.util.StorageManagerHelper
+import com.torrenthub.aio.util.StorageUsageInfo
 import com.torrenthub.aio.util.TrackerManager
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -96,16 +105,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return if (args.isEmpty()) res.getString(resId) else res.getString(resId, *args)
     }
 
-    fun localizedLangLabel(lang: AppLanguage): String = when (lang) {
+    fun localizedUiLangLabel(lang: AppLanguage): String = when (lang) {
         AppLanguage.ID -> str(R.string.lang_id)
         AppLanguage.EN -> str(R.string.lang_en)
-        AppLanguage.ZH -> str(R.string.lang_zh)
-        AppLanguage.JA -> str(R.string.lang_ja)
-        AppLanguage.KO -> str(R.string.lang_ko)
+    }
+
+    fun localizedLangLabel(lang: SubtitleTargetLanguage): String = when (lang) {
+        SubtitleTargetLanguage.ID -> str(R.string.lang_id)
+        SubtitleTargetLanguage.EN -> str(R.string.lang_en)
+        SubtitleTargetLanguage.ZH -> str(R.string.lang_zh)
+        SubtitleTargetLanguage.ZH_TW -> str(R.string.lang_zh_tw)
+        SubtitleTargetLanguage.JA -> str(R.string.lang_ja)
+        SubtitleTargetLanguage.KO -> str(R.string.lang_ko)
+        SubtitleTargetLanguage.MS -> str(R.string.lang_ms)
+        SubtitleTargetLanguage.AR -> str(R.string.lang_ar)
+        SubtitleTargetLanguage.ES -> str(R.string.lang_es)
+        SubtitleTargetLanguage.FR -> str(R.string.lang_fr)
+        SubtitleTargetLanguage.DE -> str(R.string.lang_de)
+        SubtitleTargetLanguage.PT -> str(R.string.lang_pt)
+        SubtitleTargetLanguage.RU -> str(R.string.lang_ru)
+        SubtitleTargetLanguage.HI -> str(R.string.lang_hi)
+        SubtitleTargetLanguage.TH -> str(R.string.lang_th)
+        SubtitleTargetLanguage.VI -> str(R.string.lang_vi)
+        SubtitleTargetLanguage.TR -> str(R.string.lang_tr)
     }
 
     /* =====================================================================
-     * PHASE 1: GLOBAL APP SETTINGS (LANGUAGE, SUBTITLE TARGET, THEME, SWIPE)
+     * PHASE 1 & 5A: GLOBAL APP SETTINGS (UI LANG, SUB TARGET, DOH, SECURITY)
      * ===================================================================== */
     var appLanguage by mutableStateOf(settings.appLanguage)
         private set
@@ -116,6 +142,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var browserTabSwipeEnabled by mutableStateOf(settings.browserTabSwipeEnabled)
         private set
     var showSettingsDialog by mutableStateOf(false)
+
+    var dohProvider by mutableStateOf(settings.dohProvider)
+        private set
+    var isTestingDoh by mutableStateOf(false)
+        private set
+
+    var appLockEnabled by mutableStateOf(settings.appLockEnabled)
+        private set
+    var appLockPinHash by mutableStateOf(settings.appLockPinHash)
+        private set
+    var appLockPinLength by mutableIntStateOf(settings.appLockPinLength)
+        private set
+    var appLockBiometricEnabled by mutableStateOf(settings.appLockBiometricEnabled)
+        private set
+    var disguiseModeEnabled by mutableStateOf(settings.disguiseModeEnabled)
+        private set
+    var autoClearOnExit by mutableStateOf(settings.autoClearOnExit)
+        private set
+    var isSessionUnlocked by mutableStateOf(!settings.appLockEnabled)
+        private set
+
+    val hasPinConfigured: Boolean
+        get() = appLockPinHash.isNotBlank()
+
+    val isAppLockedNow: Boolean
+        get() = appLockEnabled && appLockPinHash.isNotBlank() && !isSessionUnlocked
 
     var currentTab by mutableIntStateOf(0)
 
@@ -137,7 +189,135 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settings.setBrowserTabSwipeEnabled(enabled)
     }
 
-    fun updateSubtitleTargetLang(lang: AppLanguage) {
+    fun dohProviderLabel(provider: DohProvider): String = when (provider) {
+        DohProvider.OFF -> str(R.string.doh_provider_off)
+        DohProvider.CLOUDFLARE -> str(R.string.doh_provider_cloudflare)
+        DohProvider.GOOGLE -> str(R.string.doh_provider_google)
+        DohProvider.QUAD9 -> str(R.string.doh_provider_quad9)
+    }
+
+    fun updateDohProvider(provider: DohProvider) {
+        if (dohProvider == provider) return
+        dohProvider = provider
+        settings.setDohProvider(provider)
+        emitToast(str(R.string.toast_doh_changed, dohProviderLabel(provider)))
+    }
+
+    fun testDohConnection() {
+        if (isTestingDoh) return
+        val active = dohProvider
+        viewModelScope.launch {
+            isTestingDoh = true
+            try {
+                val (resolvedIp, ms) = HttpClient.testActiveDns("nyaa.si")
+                emitToast(str(R.string.toast_doh_test_ok, dohProviderLabel(active), resolvedIp, ms))
+            } catch (e: Exception) {
+                emitToast(str(R.string.toast_doh_test_fail, e.message ?: "DNS error"))
+            } finally {
+                isTestingDoh = false
+            }
+        }
+    }
+
+    fun verifyPinInput(pin: String): Boolean =
+        AppSecurityHelper.verifyPin(pin, appLockPinHash)
+
+    fun unlockSession() {
+        isSessionUnlocked = true
+    }
+
+    fun lockSessionNow() {
+        if (appLockEnabled && appLockPinHash.isNotBlank()) {
+            showSettingsDialog = false
+            showDownloadManagerDialog = false
+            isSessionUnlocked = false
+        }
+    }
+
+    fun configureNewAppLockPin(newPin: String) {
+        val clean = newPin.trim()
+        if (!AppSecurityHelper.isValidPinFormat(clean)) return
+        val hash = AppSecurityHelper.hashPin(clean)
+        appLockPinHash = hash
+        appLockPinLength = clean.length
+        appLockEnabled = true
+        isSessionUnlocked = true
+        settings.saveAppLockPin(hash, clean.length, enableLock = true)
+        emitToast(str(R.string.toast_applock_enabled))
+    }
+
+    fun enableAppLockWithExistingPin() {
+        if (appLockPinHash.isBlank()) return
+        appLockEnabled = true
+        isSessionUnlocked = true
+        settings.setAppLockEnabled(true)
+        emitToast(str(R.string.toast_applock_enabled))
+    }
+
+    fun disableAppLockConfirmed() {
+        appLockEnabled = false
+        isSessionUnlocked = true
+        settings.setAppLockEnabled(false)
+        emitToast(str(R.string.toast_applock_disabled))
+    }
+
+    fun updateAppLockBiometric(enabled: Boolean) {
+        appLockBiometricEnabled = enabled
+        settings.setAppLockBiometricEnabled(enabled)
+    }
+
+    fun updateDisguiseMode(enabled: Boolean) {
+        disguiseModeEnabled = enabled
+        settings.setDisguiseModeEnabled(enabled)
+        emitToast(
+            if (enabled) str(R.string.toast_disguise_on)
+            else str(R.string.toast_disguise_off)
+        )
+    }
+
+    fun updateAutoClearOnExit(enabled: Boolean) {
+        autoClearOnExit = enabled
+        settings.setAutoClearOnExit(enabled)
+    }
+
+    fun clearSearchAndBrowserHistoryNow(
+        webView: android.webkit.WebView? = null,
+        silent: Boolean = false,
+        blockingPrefs: Boolean = false
+    ) {
+        torrentSearchJob?.cancel()
+        subtitleSearchJob?.cancel()
+        isSearchingTorrents = false
+        isSearchingSubtitles = false
+
+        torrentQuery = ""
+        torrentSubFilter = ""
+        rawPool.clear()
+        allTorrents.clear()
+        sourceStatuses.clear()
+        selectedMagnets.clear()
+
+        subtitleQuery = ""
+        subtitleResults.clear()
+        subtitleStatusMsg = null
+
+        rssSearchFilter = ""
+
+        browserCurrentUrl = "https://www.google.com"
+        browserPageTitle = ""
+        browserSelectedQuery = ""
+        browserCanGoBack = false
+        browserCanGoForward = false
+
+        settings.clearPersistedSearchAndBrowserHistory(blocking = blockingPrefs)
+        AppSecurityHelper.clearWebViewSessionAndHistory(getApplication(), webView)
+
+        if (!silent) {
+            emitToast(str(R.string.toast_history_cleared))
+        }
+    }
+
+    fun updateSubtitleTargetLang(lang: SubtitleTargetLanguage) {
         if (subtitleTargetLang == lang) return
         subtitleTargetLang = lang
         if (GeminiEngine.isBuiltInDefaultTranslateNotes(geminiNotesTranslate)) {
@@ -338,7 +518,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val rssMatchedCount: Int
         get() = rssItems.count { it.isMatched }
 
+    /* =====================================================================
+     * PHASE 5B: JSON BACKUP/RESTORE & STORAGE CACHE MANAGEMENT STATE
+     * ===================================================================== */
+    var includeSensitiveKeysOnExport by mutableStateOf(false)
+    var isBackupBusy by mutableStateOf(false)
+        private set
+
+    var storageUsage by mutableStateOf(StorageUsageInfo())
+        private set
+    var isScanningStorage by mutableStateOf(false)
+        private set
+    var isCleaningStorage by mutableStateOf(false)
+        private set
+
     init {
+        SubtitleRepository.initDiskCache(app)
+        HttpClient.applyDohProvider(dohProvider)
+        if (autoClearOnExit) {
+            browserCurrentUrl = "https://www.google.com"
+            settings.clearPersistedSearchAndBrowserHistory(blocking = false)
+        }
         syncFormattersTrackerConfig()
         if (GeminiEngine.isBuiltInDefaultTranslateNotes(geminiNotesTranslate)) {
             geminiNotesTranslate = GeminiEngine.defaultNotesTranslate(subtitleTargetLang.code)
@@ -2100,5 +2300,332 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             true
         }
+    }
+
+    /* =====================================================================
+     * PHASE 5B: BACKUP & RESTORE JSON + STORAGE & CACHE MANAGEMENT ACTIONS
+     * ===================================================================== */
+    private fun syncAllStateFromPreferences(snap: Preferences) {
+        val K = SettingsRepository.Keys
+
+        val nextLang = AppLanguage.fromCode(snap[K.APP_LANGUAGE])
+        appLanguage = nextLang
+        LocaleHelper.localeForCode(nextLang.code).let { java.util.Locale.setDefault(it) }
+
+        val nextSubTarget = SubtitleTargetLanguage.fromCode(snap[K.SUB_TARGET_LANG])
+        subtitleTargetLang = nextSubTarget
+        themeMode = AppThemeMode.fromId(snap[K.APP_THEME_MODE])
+
+        val nextDoh = DohProvider.fromId(snap[K.DOH_PROVIDER])
+        dohProvider = nextDoh
+        HttpClient.applyDohProvider(nextDoh)
+
+        disguiseModeEnabled = snap[K.DISGUISE_MODE_ENABLED] ?: false
+        autoClearOnExit = snap[K.AUTO_CLEAR_ON_EXIT] ?: false
+        appLockBiometricEnabled = snap[K.APP_LOCK_BIOMETRIC] ?: true
+
+        browserTabSwipeEnabled = snap[K.BROWSER_TAB_SWIPE] ?: true
+        browserAdShieldEnabled = snap[K.BROWSER_ADSHIELD] ?: true
+        browserAntiPopupStrict = snap[K.BROWSER_ANTIPOPUP] ?: true
+
+        // Reload Browser Bookmarks
+        browserBookmarks.clear()
+        val bmRaw = snap[K.BROWSER_BOOKMARKS_V1]
+        if (bmRaw != null) {
+            runCatching {
+                val arr = JSONArray(bmRaw)
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val u = o.optString("url")
+                    if (u.isNotBlank()) {
+                        browserBookmarks.add(BrowserBookmark(o.optString("title").ifBlank { u }, u))
+                    }
+                }
+            }
+        }
+        if (browserBookmarks.isEmpty()) {
+            loadBrowserBookmarks()
+        }
+
+        // Reload Torrent & Tracker settings
+        torrentSortMode = snap[K.UTA_SORT] ?: "seeders-desc"
+        hideDeadTorrents = snap[K.UTA_HIDE_DEAD] ?: true
+        val srcRaw = snap[K.UTA_SOURCES]
+        val srcJson = runCatching { if (srcRaw != null) JSONObject(srcRaw) else null }.getOrNull()
+        for (s in TorrentRepository.SOURCES) {
+            enabledSources[s.id] = srcJson?.optBoolean(s.id, s.defaultOn) ?: s.defaultOn
+        }
+
+        autoAppendTrackers = snap[K.TRACKER_AUTO_APPEND] ?: true
+        trackerSourceUrl = snap[K.TRACKER_SOURCE_URL] ?: TrackerManager.DEFAULT_TRACKER_URL
+        fetchedTrackersRaw = snap[K.TRACKER_FETCHED_RAW] ?: ""
+        customTrackersRaw = snap[K.TRACKER_CUSTOM_RAW] ?: ""
+        trackerLastUpdatedMs = snap[K.TRACKER_LAST_UPDATED_MS] ?: 0L
+        syncFormattersTrackerConfig()
+
+        // Reload RSS Feeds & Keywords
+        rssFeeds.clear()
+        val feedsRaw = snap[K.RSS_FEEDS_V1]
+        var hasFeedList = false
+        if (feedsRaw != null) {
+            runCatching {
+                val arr = JSONArray(feedsRaw)
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val u = o.optString("url").trim()
+                    if (u.isNotBlank()) {
+                        rssFeeds.add(
+                            RssFeedSource(
+                                id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                                title = o.optString("title").ifBlank { u },
+                                url = u,
+                                enabled = o.optBoolean("enabled", true),
+                                lastSyncMs = o.optLong("lastSyncMs", 0L),
+                                lastItemCount = o.optInt("lastItemCount", 0),
+                                lastError = o.optString("lastError", "")
+                            )
+                        )
+                    }
+                }
+                hasFeedList = true
+            }
+        }
+        if (!hasFeedList) {
+            rssFeeds.addAll(RssRepository.defaultFeeds())
+        }
+
+        rssWatchKeywords.clear()
+        val kwRaw = snap[K.RSS_KEYWORDS_V1]
+        if (kwRaw != null) {
+            runCatching {
+                val arr = JSONArray(kwRaw)
+                for (i in 0 until arr.length()) {
+                    val kw = arr.optString(i).trim()
+                    if (kw.isNotBlank() && rssWatchKeywords.none { it.equals(kw, ignoreCase = true) }) {
+                        rssWatchKeywords.add(kw)
+                    }
+                }
+            }
+        } else {
+            rssWatchKeywords.addAll(listOf("1080p", "2160p"))
+        }
+        recomputeRssKeywordMatches()
+
+        // Reload Subtitle & Translation Provider settings
+        subtitleProvider = SubtitleProvider.fromId(snap[K.SUB_PROVIDER])
+        autoPairSubtitleVideo = (snap[K.SUB_AUTO_PAIR] ?: false) && !snap[K.SUB_PAIR_FOLDER_URI].isNullOrBlank()
+
+        geminiKeysRaw = snap[K.GST_KEYS] ?: ""
+        translationProvider = TranslationProvider.fromId(
+            snap[K.TR_PROVIDER],
+            fallbackToGemini = geminiKeysRaw.isNotBlank()
+        )
+        googleTranslateEndpoint = snap[K.TR_GOOGLE_ENDPOINT] ?: GeminiEngine.DEFAULT_GOOGLE_GTX_ENDPOINT
+        geminiEndpoint = snap[K.TR_GEMINI_ENDPOINT] ?: GeminiEngine.DEFAULT_GEMINI_ENDPOINT
+        deeplApiKey = snap[K.TR_DEEPL_KEY] ?: ""
+        deeplModel = snap[K.TR_DEEPL_MODEL] ?: "prefer_quality_optimized"
+        deeplEndpoint = snap[K.TR_DEEPL_ENDPOINT] ?: ""
+        openaiApiKey = snap[K.TR_OPENAI_KEY] ?: ""
+        openaiModel = snap[K.TR_OPENAI_MODEL] ?: "gpt-4o-mini"
+        openaiEndpoint = snap[K.TR_OPENAI_ENDPOINT] ?: GeminiEngine.DEFAULT_OPENAI_ENDPOINT
+
+        geminiModel = snap[K.GST_MODEL] ?: GeminiEngine.DEFAULT_MODEL
+        geminiAvailableModels.clear()
+        val extraModels = mutableListOf<String>()
+        snap[K.GST_MODELS_LIST]?.let { mRaw ->
+            runCatching {
+                val arr = JSONArray(mRaw)
+                for (i in 0 until arr.length()) {
+                    val m = arr.optString(i).trim()
+                    if (m.isNotEmpty()) extraModels.add(m)
+                }
+            }
+        }
+        geminiAvailableModels.addAll((GeminiEngine.DEFAULT_MODELS + extraModels).distinct())
+        if (geminiModel !in geminiAvailableModels) {
+            geminiAvailableModels.add(0, geminiModel)
+        }
+
+        geminiTaskMode = snap[K.GST_TASK_MODE] ?: "translate"
+        geminiAutoDetect = snap[K.GST_AUTODETECT] ?: true
+        geminiNameMode = snap[K.GST_NAME_MODE] ?: "code-upper"
+        geminiNotesTranslate = snap[K.GST_NOTES_TR] ?: GeminiEngine.defaultNotesTranslate(nextSubTarget.code)
+        geminiNotesPolish = snap[K.GST_NOTES_PL] ?: GeminiEngine.defaultNotesPolish(nextSubTarget.code)
+        geminiGlossary = snap[K.GST_GLOSSARY] ?: ""
+        geminiRelaxSafety = snap[K.GST_SAFETY] ?: true
+        geminiIncludeAllLines = snap[K.GST_ALL_LINES] ?: false
+        geminiSlidingContext = snap[K.GST_SLIDING_CTX] ?: true
+        geminiCleanAds = snap[K.GST_CLEAN_ADS] ?: true
+        geminiBilingual = snap[K.GST_BILINGUAL] ?: false
+        geminiTimeShiftSec = snap[K.GST_SHIFT_SEC] ?: "0"
+        geminiAutoUploadPikPak = snap[K.GST_AUTO_UP_PIKPAK] ?: false
+    }
+
+    fun exportSettingsBackupToUri(uri: Uri, includeSensitiveKeys: Boolean) {
+        if (isBackupBusy) return
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            isBackupBusy = true
+            try {
+                val jsonPayload = withContext(Dispatchers.IO) {
+                    val payload = settings.exportBackupJson(includeSensitiveKeys)
+                    val outStream = appCtx.contentResolver.openOutputStream(uri, "wt")
+                        ?: appCtx.contentResolver.openOutputStream(uri)
+                        ?: throw IllegalStateException("Cannot open output stream")
+                    outStream.use { out ->
+                        out.write(payload.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                    payload
+                }
+                if (jsonPayload.isNotEmpty()) {
+                    emitToast(
+                        if (includeSensitiveKeys) str(R.string.toast_backup_export_ok_with_keys)
+                        else str(R.string.toast_backup_export_ok_no_keys)
+                    )
+                }
+            } catch (e: Exception) {
+                emitToast(str(R.string.toast_backup_export_fail, e.message ?: "IO Error"))
+            } finally {
+                isBackupBusy = false
+            }
+        }
+    }
+
+    fun importSettingsBackupFromUri(uri: Uri) {
+        if (isBackupBusy) return
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            isBackupBusy = true
+            try {
+                val importRes = withContext(Dispatchers.IO) {
+                    val rawBytes = appCtx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("Cannot read selected file")
+                    val rawJson = String(rawBytes, Charsets.UTF_8)
+                    settings.importBackupJson(rawJson)
+                }
+                syncAllStateFromPreferences(importRes.updatedPrefs)
+                emitToast(
+                    if (importRes.restoredSensitiveKeys) str(R.string.toast_backup_import_ok_with_keys)
+                    else str(R.string.toast_backup_import_ok)
+                )
+            } catch (e: Exception) {
+                emitToast(str(R.string.toast_backup_import_fail, e.message ?: "Invalid JSON"))
+            } finally {
+                isBackupBusy = false
+            }
+        }
+    }
+
+    private fun estimatedInMemoryHistoryAndLogsBytes(): Long {
+        var bytes = 0L
+        geminiPreviewLog?.let { bytes += it.length.toLong() * 2L }
+        bytes += allTorrents.size.toLong() * 220L
+        bytes += subtitleResults.size.toLong() * 180L
+        bytes += rssItems.size.toLong() * 240L
+        return bytes
+    }
+
+    fun refreshStorageUsage() {
+        val appCtx = getApplication<Application>()
+        val memBytes = estimatedInMemoryHistoryAndLogsBytes()
+        viewModelScope.launch {
+            isScanningStorage = true
+            try {
+                val info = withContext(Dispatchers.IO) {
+                    StorageManagerHelper.calculateStorageUsage(
+                        context = appCtx,
+                        settings = settings,
+                        inMemoryHistoryAndLogsBytes = memBytes
+                    )
+                }
+                storageUsage = info
+            } finally {
+                isScanningStorage = false
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoilApi::class)
+    fun clearWebViewAndSubtitleCache(webView: android.webkit.WebView? = null) {
+        if (isCleaningStorage) return
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            isCleaningStorage = true
+            try {
+                val beforeTotal = storageUsage.webViewCacheBytes + storageUsage.subtitleTempBytes
+                runCatching { webView?.clearCache(true) }
+                PreviewRepository.clearCache()
+                runCatching {
+                    val loader = Coil.imageLoader(appCtx)
+                    loader.memoryCache?.clear()
+                    loader.diskCache?.clear()
+                }
+                withContext(Dispatchers.IO) {
+                    StorageManagerHelper.clearWebViewAndTempSubtitleFilesOnDisk(appCtx)
+                    if (!isGeminiRunning) {
+                        settings.clearAllSavedJobProgress()
+                    }
+                }
+                if (!isGeminiRunning && geminiJobs.isNotEmpty()) {
+                    progressMap.clear()
+                    geminiJobs.forEachIndexed { idx, job ->
+                        if (job.hasSavedProgress && job.pct < 100) {
+                            geminiJobs[idx] = job.copy(hasSavedProgress = false)
+                        }
+                    }
+                }
+                val memBytes = estimatedInMemoryHistoryAndLogsBytes()
+                val afterInfo = withContext(Dispatchers.IO) {
+                    StorageManagerHelper.calculateStorageUsage(appCtx, settings, memBytes)
+                }
+                storageUsage = afterInfo
+                val afterCache = afterInfo.webViewCacheBytes + afterInfo.subtitleTempBytes
+                val freed = (beforeTotal - afterCache).coerceAtLeast(0L)
+                emitToast(
+                    str(
+                        R.string.toast_storage_cache_cleared,
+                        StorageManagerHelper.formatStorageSize(freed)
+                    )
+                )
+            } finally {
+                isCleaningStorage = false
+            }
+        }
+    }
+
+    fun resetAppHistoryAndLogs(webView: android.webkit.WebView? = null) {
+        if (isCleaningStorage) return
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            isCleaningStorage = true
+            try {
+                clearSearchAndBrowserHistoryNow(webView = webView, silent = true)
+                geminiPreviewLog = null
+                rssItems.clear()
+                downloadManager.clearFinishedDownloads()
+                withContext(Dispatchers.IO) {
+                    StorageManagerHelper.clearHistoryAndLogFilesOnDisk(appCtx)
+                }
+                val afterInfo = withContext(Dispatchers.IO) {
+                    StorageManagerHelper.calculateStorageUsage(
+                        context = appCtx,
+                        settings = settings,
+                        inMemoryHistoryAndLogsBytes = estimatedInMemoryHistoryAndLogsBytes()
+                    )
+                }
+                storageUsage = afterInfo
+                emitToast(str(R.string.toast_storage_history_reset))
+            } finally {
+                isCleaningStorage = false
+            }
+        }
+    }
+
+    override fun onCleared() {
+        if (autoClearOnExit) {
+            settings.clearPersistedSearchAndBrowserHistory(blocking = false)
+        }
+        super.onCleared()
     }
 }

@@ -15,6 +15,11 @@ object PreviewRepository {
     private val whatsLinkCache = ConcurrentHashMap<String, WhatsLinkInfo>()
     private val threeSourceCache = ConcurrentHashMap<String, String>()
 
+    fun clearCache() {
+        whatsLinkCache.clear()
+        threeSourceCache.clear()
+    }
+
     suspend fun queryWhatsLink(magnet: String): WhatsLinkInfo {
         val key = Formatters.extractInfoHash(magnet).ifBlank { magnet }
         whatsLinkCache[key]?.let { return it }

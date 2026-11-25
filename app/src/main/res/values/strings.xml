@@ -34,18 +34,30 @@
 
     <!-- Settings Screen -->
     <string name="settings_title">⚙️ Pengaturan Aplikasi</string>
-    <string name="settings_subtitle">Bahasa, terjemahan subtitle, tampilan &amp; kontrol navigasi</string>
+    <string name="settings_subtitle">Bahasa, DNS-over-HTTPS, kunci privasi, subtitle &amp; tampilan</string>
     <string name="settings_section_language">🌐 Bahasa &amp; Terjemahan</string>
-    <string name="settings_app_language">Bahasa Aplikasi</string>
-    <string name="settings_app_language_desc">Diterapkan langsung ke seluruh antarmuka aplikasi</string>
+    <string name="settings_app_language">Bahasa Antarmuka (UI)</string>
+    <string name="settings_app_language_desc">Diterapkan langsung ke seluruh antarmuka aplikasi (Indonesia / Inggris)</string>
     <string name="settings_sub_target_lang">Bahasa Target Terjemahan Subtitle</string>
-    <string name="settings_sub_target_lang_desc">Bahasa tujuan saat menerjemahkan atau memperbaiki subtitle di Gemini</string>
+    <string name="settings_sub_target_lang_desc">Bahasa tujuan saat mencari, menerjemahkan, atau memperbaiki subtitle</string>
 
     <string name="lang_id">Indonesia</string>
     <string name="lang_en">English</string>
     <string name="lang_zh">中文 (Mandarin)</string>
+    <string name="lang_zh_tw">繁體中文 (Tradisional)</string>
     <string name="lang_ja">日本語 (Jepang)</string>
     <string name="lang_ko">한국어 (Korea)</string>
+    <string name="lang_ms">Bahasa Melayu</string>
+    <string name="lang_ar">العربية (Arab)</string>
+    <string name="lang_es">Español (Spanyol)</string>
+    <string name="lang_fr">Français (Prancis)</string>
+    <string name="lang_de">Deutsch (Jerman)</string>
+    <string name="lang_pt">Português (Portugis)</string>
+    <string name="lang_ru">Русский (Rusia)</string>
+    <string name="lang_hi">हिन्दी (Hindi)</string>
+    <string name="lang_th">ไทย (Thailand)</string>
+    <string name="lang_vi">Tiếng Việt (Vietnam)</string>
+    <string name="lang_tr">Türkçe (Turki)</string>
 
     <string name="settings_section_appearance">🎨 Tampilan &amp; Tema</string>
     <string name="settings_theme_mode">Tema Tampilan</string>
@@ -519,4 +531,94 @@
     <string name="toast_rss_invalid_url">⚠️ Masukkan URL RSS http:// atau https:// yang valid.</string>
     <string name="toast_rss_refreshed">📡 Memuat %1$d rilis RSS (%2$d cocok kata kunci)!</string>
     <string name="toast_rss_keyword_added">🎯 Kata kunci pantauan ditambahkan: %1$s</string>
+
+    <!-- Phase 5A: DNS-over-HTTPS (DoH), App Lock (PIN / Biometric) & Disguise Mode -->
+    <string name="settings_section_doh">🌐 DNS-over-HTTPS (DoH) Anti-Blokir</string>
+    <string name="settings_doh_desc">Buka situs torrent, subtitle, dan tracker yang diblokir DNS ISP secara langsung tanpa VPN menggunakan enkripsi HTTPS</string>
+    <string name="doh_provider_off">⚪ Nonaktif (Sistem)</string>
+    <string name="doh_provider_off_desc">Gunakan resolver DNS bawaan jaringan / ISP perangkat</string>
+    <string name="doh_provider_cloudflare">☁️ Cloudflare (1.1.1.1)</string>
+    <string name="doh_provider_cloudflare_desc">Cepat &amp; privasi tinggi · https://cloudflare-dns.com/dns-query</string>
+    <string name="doh_provider_google">🔍 Google (8.8.8.8)</string>
+    <string name="doh_provider_google_desc">Stabil global · https://dns.google/dns-query</string>
+    <string name="doh_provider_quad9">🛡️ Quad9 (9.9.9.9)</string>
+    <string name="doh_provider_quad9_desc">Proteksi keamanan &amp; privasi Swiss · https://dns.quad9.net/dns-query</string>
+    <string name="settings_doh_btn_test">⚡ Tes Koneksi DoH</string>
+    <string name="settings_doh_testing">⏳ Menguji DNS…</string>
+    <string name="toast_doh_changed">🌐 Server DNS diatur ke: %1$s</string>
+    <string name="toast_doh_test_ok">✅ %1$s aktif: %2$s (%3$d ms)</string>
+    <string name="toast_doh_test_fail">❌ Tes DNS gagal: %1$s</string>
+
+    <string name="cd_lock_app">Kunci Aplikasi</string>
+    <string name="disguise_app_title">📁 Media &amp; Subtitle Utility</string>
+    <string name="settings_section_security">🔒 Kunci Aplikasi &amp; Mode Samaran</string>
+    <string name="settings_security_desc">Lindungi privasi dengan kunci PIN 4–6 digit atau BiometricPrompt perangkat, Mode Samaran layar, serta pembersihan riwayat otomatis</string>
+    <string name="settings_applock_enable">Aktifkan Kunci Aplikasi (PIN / Biometrik)</string>
+    <string name="settings_applock_enable_desc">Minta PIN 4–6 digit atau biometrik perangkat saat aplikasi dibuka</string>
+    <string name="settings_applock_biometric">Buka dengan Biometrik Perangkat</string>
+    <string name="settings_applock_biometric_desc">Tampilkan BiometricPrompt otomatis saat layar kunci muncul</string>
+    <string name="settings_applock_biometric_unavailable">Perangkat belum memiliki sidik jari / biometrik aktif (menggunakan PIN)</string>
+    <string name="settings_applock_btn_setup_pin">🔑 Atur PIN</string>
+    <string name="settings_applock_btn_change_pin">🔑 Ubah PIN</string>
+    <string name="settings_applock_btn_lock_now">🔒 Kunci Sekarang</string>
+    <string name="settings_disguise_enable">Mode Samaran (Sembunyikan di Recent Apps &amp; Samarkan Header)</string>
+    <string name="settings_disguise_enable_desc">Sembunyikan pratinjau layar di Recent Apps (anti-screenshot) dan samarkan judul header aplikasi</string>
+    <string name="settings_autoclear_exit">Hapus Otomatis Riwayat Pencarian &amp; Browser saat Keluar</string>
+    <string name="settings_autoclear_exit_desc">Bersihkan kata kunci pencarian, URL terakhir, cache, form, cookies &amp; riwayat WebView saat keluar dari aplikasi</string>
+    <string name="settings_btn_clear_history_now">🧹 Hapus Riwayat Pencarian &amp; Browser Sekarang</string>
+
+    <string name="applock_screen_title">🔒 TorrentHub AIO Terkunci</string>
+    <string name="applock_screen_subtitle">Masukkan PIN 4–6 digit atau gunakan biometrik untuk membuka</string>
+    <string name="applock_prompt_title">Buka Kunci Aplikasi</string>
+    <string name="applock_prompt_subtitle">Verifikasi identitas untuk mengakses aplikasi</string>
+    <string name="applock_btn_use_pin">Gunakan PIN</string>
+    <string name="applock_btn_unlock">🔓 Buka Kunci</string>
+    <string name="applock_btn_biometric">Buka dengan Biometrik</string>
+    <string name="applock_dialog_setup_title">🔑 Buat PIN Kunci Aplikasi (4–6 Digit)</string>
+    <string name="applock_dialog_change_title">🔑 Ubah PIN Kunci Aplikasi</string>
+    <string name="applock_dialog_disable_title">🔓 Nonaktifkan Kunci Aplikasi</string>
+    <string name="applock_dialog_setup_desc">Masukkan kombinasi angka 4 hingga 6 digit untuk melindungi akses aplikasi.</string>
+    <string name="applock_dialog_disable_desc">Masukkan PIN aktif saat ini untuk menonaktifkan kunci aplikasi.</string>
+    <string name="applock_field_current_pin">PIN Saat Ini</string>
+    <string name="applock_field_new_pin">PIN Baru (4–6 angka)</string>
+    <string name="applock_field_confirm_pin">Konfirmasi PIN Baru</string>
+    <string name="applock_error_wrong_pin">❌ PIN salah, silakan coba lagi.</string>
+    <string name="applock_error_biometric_failed">⚠️ Biometrik tidak dikenali, coba lagi atau masukkan PIN.</string>
+    <string name="applock_error_pin_format">⚠️ PIN harus terdiri dari 4 hingga 6 angka (0–9).</string>
+    <string name="applock_error_pin_mismatch">⚠️ Konfirmasi PIN baru tidak cocok.</string>
+
+    <string name="toast_applock_enabled">🔒 Kunci Aplikasi berhasil diaktifkan!</string>
+    <string name="toast_applock_disabled">🔓 Kunci Aplikasi dinonaktifkan.</string>
+    <string name="toast_disguise_on">🕵️ Mode Samaran aktif (Recent Apps &amp; Header disamarkan)</string>
+    <string name="toast_disguise_off">⚪ Mode Samaran dinonaktifkan</string>
+    <string name="toast_history_cleared">🧹 Riwayat pencarian &amp; sesi Browser berhasil dibersihkan!</string>
+
+    <!-- Phase 5B: JSON Settings Backup/Restore & Storage Cache Management -->
+    <string name="settings_section_backup">💾 Backup &amp; Restore Pengaturan (JSON)</string>
+    <string name="settings_backup_desc">Ekspor dan impor seluruh preferensi aplikasi (bahasa, tema, DoH, daftar tracker kustom, langganan RSS, dan konfigurasi penerjemah) ke/dari file JSON</string>
+    <string name="settings_backup_scope_summary">Siap dicadangkan: %1$d feed RSS · %2$d tracker kustom · Penerjemah: %3$s</string>
+    <string name="settings_backup_include_keys">Sertakan API Key Sensitif saat Ekspor</string>
+    <string name="settings_backup_include_keys_off_desc">Aman dibagikan: API Key Gemini, DeepL, dan OpenAI dikecualikan dari file JSON</string>
+    <string name="settings_backup_include_keys_on_desc">⚠️ API Key disertakan dalam file JSON — simpan file cadangan di tempat aman</string>
+    <string name="settings_backup_btn_export">📤 Ekspor JSON</string>
+    <string name="settings_backup_btn_import">📥 Impor JSON</string>
+    <string name="toast_backup_export_ok_no_keys">✅ Pengaturan berhasil diekspor ke JSON (tanpa API Key)!</string>
+    <string name="toast_backup_export_ok_with_keys">✅ Pengaturan &amp; API Key berhasil diekspor ke JSON!</string>
+    <string name="toast_backup_export_fail">❌ Gagal mengekspor pengaturan: %1$s</string>
+    <string name="toast_backup_import_ok">✅ Pengaturan berhasil dipulihkan dari file JSON!</string>
+    <string name="toast_backup_import_ok_with_keys">✅ Pengaturan &amp; API Key berhasil dipulihkan dari file JSON!</string>
+    <string name="toast_backup_import_fail">❌ Gagal mengimpor file JSON: %1$s</string>
+
+    <string name="cd_refresh_storage">Hitung Ulang Penyimpanan</string>
+    <string name="settings_section_storage">🗄️ Manajemen Penyimpanan &amp; Cache</string>
+    <string name="settings_storage_desc">Lihat perkiraan ukuran ruang penyimpanan yang terpakai dan bersihkan cache sementara atau riwayat aplikasi dengan satu ketukan</string>
+    <string name="settings_storage_total_label">Perkiraan Ruang Terpakai</string>
+    <string name="settings_storage_scanning">⏳ Menghitung…</string>
+    <string name="settings_storage_webview_cache">Cache WebView &amp; Jaringan</string>
+    <string name="settings_storage_subtitle_temp">File Subtitle Sementara</string>
+    <string name="settings_storage_history_logs">Riwayat &amp; Log Aplikasi</string>
+    <string name="settings_storage_btn_clear_cache">🧹 Bersihkan Cache WebView &amp; Subtitle Sementara</string>
+    <string name="settings_storage_btn_reset_history">🗑️ Reset Riwayat &amp; Log Aplikasi</string>
+    <string name="toast_storage_cache_cleared">🧹 Cache WebView &amp; subtitle sementara dibersihkan (%1$s dibebaskan)!</string>
+    <string name="toast_storage_history_reset">🗑️ Riwayat pencarian, Browser &amp; log aplikasi berhasil direset!</string>
 </resources>

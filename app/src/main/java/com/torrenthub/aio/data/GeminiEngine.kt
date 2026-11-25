@@ -87,29 +87,36 @@ object GeminiEngine {
         "ko" to "기계번역으로 어색해진 한국어 자막을 화면에서 읽기 편하고 자연스러운 일상 구어체 대사로 교정해 주세요. 인물 관계에 맞는 말투(반말/존댓말)와 호칭을 일관성 있게 다듬되, 대사를 요약·생략·검열하지 말고 줄바꿈과 태그를 그대로 유지하세요."
     )
 
-    fun defaultNotesTranslate(targetLang: String): String =
-        BUILTIN_NOTES_TRANSLATE[targetLang.lowercase(Locale.ROOT)] ?: DEFAULT_NOTES_TRANSLATE
+    fun defaultNotesTranslate(targetLang: String): String {
+        val key = targetLang.lowercase(Locale.ROOT)
+        BUILTIN_NOTES_TRANSLATE[key]?.let { return it }
+        val langName = SubtitleTargetLanguage.fromCode(targetLang).englishPromptName
+        return "Translate dialogue into natural, idiomatic, spoken everyday $langName that fits the scene context—avoid stiff word-for-word translation. Match register and tone to character relationships, and preserve emotional nuance, interjections, and nicknames without censoring or truncating meaning."
+    }
 
-    fun defaultNotesPolish(targetLang: String): String =
-        BUILTIN_NOTES_POLISH[targetLang.lowercase(Locale.ROOT)] ?: DEFAULT_NOTES_POLISH
+    fun defaultNotesPolish(targetLang: String): String {
+        val key = targetLang.lowercase(Locale.ROOT)
+        BUILTIN_NOTES_POLISH[key]?.let { return it }
+        val langName = SubtitleTargetLanguage.fromCode(targetLang).englishPromptName
+        return "Rewrite these machine-translated $langName subtitle lines so they read like natural, fluent, emotional spoken dialogue on screen. Fix awkward or overly literal phrasing while keeping character voice consistent. Never summarize, omit, or censor dialogue, and preserve original line breaks and tags."
+    }
 
     fun isBuiltInDefaultTranslateNotes(notes: String): Boolean {
         val clean = notes.trim()
-        return clean.isEmpty() || BUILTIN_NOTES_TRANSLATE.values.any { it.trim() == clean }
+        return clean.isEmpty() ||
+            BUILTIN_NOTES_TRANSLATE.values.any { it.trim() == clean } ||
+            SubtitleTargetLanguage.entries.any { defaultNotesTranslate(it.code).trim() == clean }
     }
 
     fun isBuiltInDefaultPolishNotes(notes: String): Boolean {
         val clean = notes.trim()
-        return clean.isEmpty() || BUILTIN_NOTES_POLISH.values.any { it.trim() == clean }
+        return clean.isEmpty() ||
+            BUILTIN_NOTES_POLISH.values.any { it.trim() == clean } ||
+            SubtitleTargetLanguage.entries.any { defaultNotesPolish(it.code).trim() == clean }
     }
 
-    fun targetLanguageEnglishName(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
-        "en" -> "English"
-        "zh" -> "Simplified Chinese (简体中文)"
-        "ja" -> "Japanese (日本語)"
-        "ko" -> "Korean (한국어)"
-        else -> "Indonesian (Bahasa Indonesia)"
-    }
+    fun targetLanguageEnglishName(targetLang: String): String =
+        SubtitleTargetLanguage.fromCode(targetLang).englishPromptName
 
     private val CJK_RE = Regex("[\\u3040-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF]")
     private val JA_KANA_RE = Regex("[\\u3040-\\u30FF]")
@@ -467,23 +474,11 @@ object GeminiEngine {
     private class BlockedException(message: String) : Exception(message)
     private class RetryableException(message: String) : Exception(message)
 
-    private fun googleGtxLangCode(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
-        "id" -> "id"
-        "en" -> "en"
-        "zh" -> "zh-CN"
-        "ja" -> "ja"
-        "ko" -> "ko"
-        else -> "id"
-    }
+    private fun googleGtxLangCode(targetLang: String): String =
+        SubtitleTargetLanguage.fromCode(targetLang).googleGtxCode
 
-    private fun deeplTargetLangCode(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
-        "id" -> "ID"
-        "en" -> "EN"
-        "zh" -> "ZH"
-        "ja" -> "JA"
-        "ko" -> "KO"
-        else -> "ID"
-    }
+    private fun deeplTargetLangCode(targetLang: String): String =
+        SubtitleTargetLanguage.fromCode(targetLang).deeplCode
 
     fun resolveDeepLEndpoint(rawEndpoint: String, apiKey: String): String {
         val clean = rawEndpoint.trim().trimEnd('/')

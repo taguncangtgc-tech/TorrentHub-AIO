@@ -11,6 +11,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,16 +39,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.torrenthub.aio.R
 import com.torrenthub.aio.data.PikPakClient
 import com.torrenthub.aio.model.PikPakDriveItem
 import com.torrenthub.aio.model.PikPakFolder
 import com.torrenthub.aio.network.HttpClient
+import com.torrenthub.aio.util.ExternalPlayerHelper
 import com.torrenthub.aio.util.Formatters
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
+    val p = AppTheme.palette
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -79,22 +85,17 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
     fun playVideoExternal(item: PikPakDriveItem) {
         scope.launch {
             streamingItemId = item.id
-            vm.emitToast("⏳ Mengambil link streaming \"${item.name}\"…")
+            vm.emitToast(vm.str(R.string.toast_pikpak_getting_stream, item.name))
             try {
                 val streamUrl = vm.fetchPikPakStreamLinkSuspend(item)
-                val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.parse(streamUrl), "video/*")
-                    putExtra("title", item.name)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                try {
-                    context.startActivity(Intent.createChooser(playIntent, "Putar dengan VLC / MX / MPV"))
-                } catch (_: Exception) {
-                    copyToClipboard("PikPak Stream URL", streamUrl)
-                    vm.emitToast("📋 Link streaming disalin (tidak ada aplikasi pemutar video eksternal).")
-                }
+                ExternalPlayerHelper.openVideoWithChooser(
+                    context = context,
+                    streamUrl = streamUrl,
+                    videoTitle = item.name,
+                    vm = vm
+                )
             } catch (e: Exception) {
-                vm.emitToast("❌ Gagal mengambil link streaming: ${e.message}")
+                vm.emitToast("❌ ${e.message}")
             } finally {
                 if (streamingItemId == item.id) streamingItemId = null
             }
@@ -107,9 +108,9 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
             try {
                 val streamUrl = vm.fetchPikPakStreamLinkSuspend(item)
                 copyToClipboard("PikPak Direct Link", streamUrl)
-                vm.emitToast("📋 Link langsung \"${item.name}\" disalin ke clipboard!")
+                vm.emitToast(vm.str(R.string.toast_pikpak_stream_copied, item.name))
             } catch (e: Exception) {
-                vm.emitToast("❌ Gagal mengambil link: ${e.message}")
+                vm.emitToast("❌ ${e.message}")
             } finally {
                 if (streamingItemId == item.id) streamingItemId = null
             }
@@ -125,7 +126,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                 val raw = vm.fetchPikPakSubtitleTextSuspend(item)
                 previewSubLines = raw.lines()
             } catch (e: Exception) {
-                previewSubLines = listOf("❌ Gagal memuat isi subtitle: ${e.message}")
+                previewSubLines = listOf("❌ ${e.message}")
             } finally {
                 previewSubLoading = false
             }
@@ -140,7 +141,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // Card 1: Connection Status & WebView Login
-        Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)) {
+        Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -148,20 +149,26 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("☁️ PikPak Cloud & Mini File Manager", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                        Text(
+                            stringResource(R.string.pikpak_card_title),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = p.textPrimary
+                        )
+                        val emailSuffix = if (creds.userEmail.isNotBlank()) " (${creds.userEmail})" else ""
                         Text(
                             text = if (creds.isLoggedIn) {
-                                "✅ Terhubung" + (if (creds.userEmail.isNotBlank()) " (${creds.userEmail})" else "")
+                                stringResource(R.string.pikpak_status_connected, emailSuffix)
                             } else {
-                                "⚪ Belum terhubung ke akun PikPak"
+                                stringResource(R.string.pikpak_status_disconnected)
                             },
                             fontSize = 12.5.sp,
-                            color = if (creds.isLoggedIn) Color(0xFF4ADE80) else Color(0xFF94A3B8)
+                            color = if (creds.isLoggedIn) p.accentGreen else p.textMuted
                         )
                     }
                     if (creds.isLoggedIn) {
                         TextButton(onClick = { vm.logoutPikPak() }) {
-                            Text("Keluar", color = Color(0xFFF87171), fontSize = 12.sp)
+                            Text(stringResource(R.string.pikpak_btn_logout), color = p.accentRed, fontSize = 12.sp)
                         }
                     }
                 }
@@ -171,20 +178,22 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (creds.isLoggedIn) "Buka & Sinkron Ulang Sesi Web PikPak"
-                        else "Login ke Akun PikPak (Web Resmi)",
-                        fontWeight = FontWeight.Bold
+                        if (creds.isLoggedIn) stringResource(R.string.pikpak_btn_resync)
+                        else stringResource(R.string.pikpak_btn_login),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
 
                 // Target Folder Selector
                 if (creds.isLoggedIn) {
                     Surface(
-                        color = Color(0xFF0F172A),
+                        color = p.subCardSurface,
                         shape = RoundedCornerShape(10.dp),
+                        border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -195,19 +204,19 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Folder Tujuan Download & Upload SRT:", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                Text(stringResource(R.string.pikpak_target_folder_label), fontSize = 11.sp, color = p.textMuted)
                                 Text(
                                     "📁 ${creds.targetFolderName}",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = Color(0xFFF8FAFC)
+                                    color = p.textPrimary
                                 )
                             }
                             OutlinedButton(
                                 onClick = { showFolderPicker = true },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("Ubah Folder", fontSize = 12.sp)
+                                Text(stringResource(R.string.pikpak_btn_change_folder), fontSize = 12.sp)
                             }
                         }
                     }
@@ -216,9 +225,10 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                 // Collapsible Manual Token Input
                 TextButton(onClick = { showManualToken = !showManualToken }) {
                     Text(
-                        if (showManualToken) "Sembunyikan Input Token Manual" else "Atau tempel Bearer Token secara manual…",
+                        if (showManualToken) stringResource(R.string.pikpak_toggle_hide_token)
+                        else stringResource(R.string.pikpak_toggle_show_token),
                         fontSize = 12.sp,
-                        color = Color(0xFF94A3B8)
+                        color = p.textMuted
                     )
                 }
                 if (showManualToken) {
@@ -228,7 +238,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 3,
-                        label = { Text("Authorization Bearer Token PikPak") },
+                        label = { Text(stringResource(R.string.pikpak_token_label)) },
                         placeholder = { Text("Bearer eyJhbGciOi...", fontSize = 12.sp) },
                         textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                     )
@@ -236,14 +246,14 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                         onClick = {
                             if (manualTokenInput.isNotBlank()) {
                                 vm.savePikPakCreds(creds.copy(accessToken = manualTokenInput.trim()))
-                                vm.emitToast("✅ Token manual disimpan!")
+                                vm.emitToast(vm.str(R.string.toast_pikpak_token_saved))
                                 vm.refreshPikPakTasks()
                                 vm.loadPikPakDirectory("")
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("Simpan Token Manual")
+                        Text(stringResource(R.string.pikpak_btn_save_token), color = Color.White)
                     }
                 }
             }
@@ -259,11 +269,13 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     onClick = { vm.pikpakSubTab = 0 },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (vm.pikpakSubTab == 0) Color(0xFF0284C7) else Color(0xFF1E293B)
+                        containerColor = if (vm.pikpakSubTab == 0) Color(0xFF0284C7) else p.cardSurface,
+                        contentColor = if (vm.pikpakSubTab == 0) Color.White else p.textPrimary
                     ),
+                    border = if (vm.pikpakSubTab != 0) p.cardBorder else null,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                 ) {
-                    Text("📁 File Manager Drive", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.pikpak_tab_drive), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
                 Button(
                     onClick = {
@@ -272,19 +284,20 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (vm.pikpakSubTab == 1) Color(0xFF0284C7) else Color(0xFF1E293B)
+                        containerColor = if (vm.pikpakSubTab == 1) Color(0xFF0284C7) else p.cardSurface,
+                        contentColor = if (vm.pikpakSubTab == 1) Color.White else p.textPrimary
                     ),
+                    border = if (vm.pikpakSubTab != 1) p.cardBorder else null,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                 ) {
-                    Text("📥 Tugas Cloud (${vm.pikpakTasks.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.pikpak_tab_tasks, vm.pikpakTasks.size), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (vm.pikpakSubTab == 0) {
                 // Card 2A: Mini File Manager My Drive
-                Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)) {
+                Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Breadcrumb & Folder Controls
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -299,7 +312,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                         onClick = { vm.navigateUpPikPakFolder() },
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        Text("⬅ Kembali", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.pikpak_btn_back), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(Modifier.width(4.dp))
                                 }
@@ -307,7 +320,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                     "📁 ${vm.currentPikPakFolderName}",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp,
-                                    color = Color(0xFF38BDF8),
+                                    color = p.accentBlue,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -316,12 +329,11 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                 if (vm.isLoadingPikPakDir) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 } else {
-                                    Icon(Icons.Default.Refresh, contentDescription = "Segarkan")
+                                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.cd_refresh), tint = p.textPrimary)
                                 }
                             }
                         }
 
-                        // Quick button to set current folder as destination
                         val isAlreadyTarget = creds.targetFolderId == vm.currentPikPakFolderId
                         OutlinedButton(
                             onClick = { vm.setCurrentDirAsPikPakTarget() },
@@ -330,11 +342,13 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                if (isAlreadyTarget) "📌 Folder ini aktif sebagai Tujuan Download & Upload SRT"
-                                else "📌 Jadikan Folder Ini Tujuan Download & Upload SRT",
+                                if (isAlreadyTarget) stringResource(R.string.pikpak_btn_target_active)
+                                else stringResource(R.string.pikpak_btn_set_target),
                                 fontSize = 11.5.sp
                             )
                         }
+
+                        val rowBorder = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null
 
                         when {
                             vm.isLoadingPikPakDir && vm.pikpakDirItems.isEmpty() -> {
@@ -346,14 +360,14 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                 Text(
                                     "⚠️ ${vm.pikpakDirError}",
                                     fontSize = 12.sp,
-                                    color = Color(0xFFF87171)
+                                    color = p.accentRed
                                 )
                             }
                             vm.pikpakDirItems.isEmpty() -> {
                                 Text(
-                                    "Folder ini kosong.",
+                                    stringResource(R.string.pikpak_folder_empty),
                                     fontSize = 12.5.sp,
-                                    color = Color(0xFF94A3B8),
+                                    color = p.textMuted,
                                     modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             }
@@ -363,8 +377,9 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                     when {
                                         item.isFolder -> {
                                             Surface(
-                                                color = Color(0xFF0F172A),
+                                                color = p.subCardSurface,
                                                 shape = RoundedCornerShape(10.dp),
+                                                border = rowBorder,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable { vm.openPikPakSubfolder(item) }
@@ -373,22 +388,22 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFF60A5FA))
+                                                    Icon(Icons.Default.Folder, contentDescription = null, tint = p.accentBlue)
                                                     Spacer(Modifier.width(10.dp))
                                                     Column(modifier = Modifier.weight(1f)) {
                                                         Text(
                                                             item.name,
                                                             fontWeight = FontWeight.SemiBold,
                                                             fontSize = 13.5.sp,
-                                                            color = Color(0xFFF8FAFC),
+                                                            color = p.textPrimary,
                                                             maxLines = 2,
                                                             overflow = TextOverflow.Ellipsis
                                                         )
                                                         if (item.modifiedTime.isNotBlank()) {
-                                                            Text(item.modifiedTime, fontSize = 10.5.sp, color = Color(0xFF64748B))
+                                                            Text(item.modifiedTime, fontSize = 10.5.sp, color = p.textMuted)
                                                         }
                                                     }
-                                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF64748B))
+                                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = p.textMuted)
                                                 }
                                             }
                                         }
@@ -397,8 +412,9 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                             val hasSub = vm.videoHasMatchingSubtitleInDir(item, dirSnapshot)
                                             val isBusyStream = streamingItemId == item.id
                                             Surface(
-                                                color = Color(0xFF0F172A),
+                                                color = p.subCardSurface,
                                                 shape = RoundedCornerShape(10.dp),
+                                                border = rowBorder,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Column(
@@ -406,13 +422,13 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Icon(Icons.Default.Movie, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                                                        Icon(Icons.Default.Movie, contentDescription = null, tint = p.accentBlue, modifier = Modifier.size(20.dp))
                                                         Spacer(Modifier.width(8.dp))
                                                         Text(
                                                             item.name,
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 13.sp,
-                                                            color = Color.White,
+                                                            color = p.textPrimary,
                                                             modifier = Modifier.weight(1f),
                                                             maxLines = 2,
                                                             overflow = TextOverflow.Ellipsis
@@ -423,27 +439,27 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
                                                         Surface(
-                                                            color = Color(0xFF0284C7).copy(alpha = 0.22f),
+                                                            color = p.accentBlue.copy(alpha = 0.16f),
                                                             shape = RoundedCornerShape(4.dp)
                                                         ) {
                                                             Text(
                                                                 "📦 ${Formatters.formatBytes(item.size)}",
                                                                 fontSize = 10.5.sp,
                                                                 fontWeight = FontWeight.Bold,
-                                                                color = Color(0xFF7DD3FC),
+                                                                color = p.accentBlue,
                                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                             )
                                                         }
                                                         Surface(
-                                                            color = if (hasSub) Color(0xFF16A34A).copy(alpha = 0.25f)
-                                                            else Color(0xFF475569).copy(alpha = 0.35f),
+                                                            color = if (hasSub) p.accentGreen.copy(alpha = 0.2f) else p.chipBg,
                                                             shape = RoundedCornerShape(4.dp)
                                                         ) {
                                                             Text(
-                                                                if (hasSub) "SUB ✓" else "No SUB",
+                                                                if (hasSub) stringResource(R.string.pikpak_sub_yes)
+                                                                else stringResource(R.string.pikpak_sub_no),
                                                                 fontSize = 10.5.sp,
                                                                 fontWeight = FontWeight.ExtraBold,
-                                                                color = if (hasSub) Color(0xFF4ADE80) else Color(0xFFCBD5E1),
+                                                                color = if (hasSub) p.accentGreen else p.chipFg,
                                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                             )
                                                         }
@@ -459,22 +475,24 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                                         ) {
                                                             Text(
-                                                                if (isBusyStream) "⏳ Link…" else "▶️ Putar (VLC/MX)",
-                                                                fontSize = 11.5.sp
+                                                                if (isBusyStream) stringResource(R.string.pikpak_btn_getting_link)
+                                                                else stringResource(R.string.pikpak_btn_open_with),
+                                                                fontSize = 11.5.sp,
+                                                                color = Color.White
                                                             )
                                                         }
                                                         OutlinedButton(
                                                             onClick = { vm.searchSubtitleForPikPakVideo(item) },
                                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                                         ) {
-                                                            Text("💬 Cari Sub", fontSize = 11.5.sp)
+                                                            Text(stringResource(R.string.pikpak_btn_search_sub), fontSize = 11.5.sp)
                                                         }
                                                         OutlinedButton(
                                                             onClick = { copyVideoLink(item) },
                                                             enabled = !isBusyStream,
                                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                                         ) {
-                                                            Text("📋 Link", fontSize = 11.5.sp)
+                                                            Text(stringResource(R.string.pikpak_btn_copy_link), fontSize = 11.5.sp)
                                                         }
                                                     }
                                                 }
@@ -484,8 +502,9 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                         item.isSubtitle -> {
                                             val isBusySub = vm.busyPikPakItemId == item.id
                                             Surface(
-                                                color = Color(0xFF0F172A),
+                                                color = p.subCardSurface,
                                                 shape = RoundedCornerShape(10.dp),
+                                                border = rowBorder,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Column(
@@ -493,13 +512,13 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Icon(Icons.Default.Subtitles, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(19.dp))
+                                                        Icon(Icons.Default.Subtitles, contentDescription = null, tint = p.accentPurple, modifier = Modifier.size(19.dp))
                                                         Spacer(Modifier.width(8.dp))
                                                         Text(
                                                             item.name,
                                                             fontWeight = FontWeight.SemiBold,
                                                             fontSize = 12.5.sp,
-                                                            color = Color(0xFFF8FAFC),
+                                                            color = p.textPrimary,
                                                             modifier = Modifier.weight(1f),
                                                             maxLines = 2,
                                                             overflow = TextOverflow.Ellipsis
@@ -508,7 +527,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                         Text(
                                                             Formatters.formatBytes(item.size),
                                                             fontSize = 11.sp,
-                                                            color = Color(0xFF94A3B8)
+                                                            color = p.textMuted
                                                         )
                                                     }
                                                     FlowRow(
@@ -522,15 +541,17 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                                         ) {
                                                             Text(
-                                                                if (isBusySub) "⏳ Mengambil…" else "✨ Kirim ke Gemini",
-                                                                fontSize = 11.5.sp
+                                                                if (isBusySub) stringResource(R.string.pikpak_btn_fetching)
+                                                                else stringResource(R.string.pikpak_btn_send_gemini),
+                                                                fontSize = 11.5.sp,
+                                                                color = Color.White
                                                             )
                                                         }
                                                         OutlinedButton(
                                                             onClick = { openSubtitlePreview(item) },
                                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                                         ) {
-                                                            Text("👁️ Preview", fontSize = 11.5.sp)
+                                                            Text(stringResource(R.string.common_preview), fontSize = 11.5.sp)
                                                         }
                                                     }
                                                 }
@@ -539,20 +560,21 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
 
                                         else -> {
                                             Surface(
-                                                color = Color(0xFF0F172A),
+                                                color = p.subCardSurface,
                                                 shape = RoundedCornerShape(8.dp),
+                                                border = rowBorder,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Icon(Icons.Default.InsertDriveFile, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
+                                                    Icon(Icons.Default.InsertDriveFile, contentDescription = null, tint = p.textMuted, modifier = Modifier.size(18.dp))
                                                     Spacer(Modifier.width(8.dp))
                                                     Text(
                                                         item.name,
                                                         fontSize = 12.5.sp,
-                                                        color = Color(0xFFCBD5E1),
+                                                        color = p.textSecondary,
                                                         modifier = Modifier.weight(1f),
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
@@ -560,7 +582,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                                     Text(
                                                         Formatters.formatBytes(item.size),
                                                         fontSize = 11.sp,
-                                                        color = Color(0xFF64748B)
+                                                        color = p.textMuted
                                                     )
                                                 }
                                             }
@@ -573,37 +595,39 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                 }
             } else {
                 // Card 2B: Recent Cloud Download Tasks
-                Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)) {
+                Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("📥 Tugas Cloud Download Terbaru", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(stringResource(R.string.pikpak_tasks_title), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = p.textPrimary)
                             IconButton(onClick = { vm.refreshPikPakTasks() }) {
                                 if (vm.isLoadingPikPakTasks) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 } else {
-                                    Icon(Icons.Default.Refresh, contentDescription = "Segarkan")
+                                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.cd_refresh), tint = p.textPrimary)
                                 }
                             }
                         }
 
                         if (vm.pikpakTasks.isEmpty()) {
                             Text(
-                                "Belum ada tugas Cloud Download aktif atau ketuk ikon segarkan di kanan atas.",
+                                stringResource(R.string.pikpak_tasks_empty),
                                 fontSize = 12.sp,
-                                color = Color(0xFF94A3B8)
+                                color = p.textMuted
                             )
                         } else {
+                            val rowBorder = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null
                             vm.pikpakTasks.forEach { task ->
-                                Surface(color = Color(0xFF0F172A), shape = RoundedCornerShape(8.dp)) {
+                                Surface(color = p.subCardSurface, shape = RoundedCornerShape(8.dp), border = rowBorder) {
                                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text(
                                             task.name,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.5.sp,
+                                            color = p.textPrimary,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -614,20 +638,20 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                             Text(
                                                 text = "${task.phase} · ${task.progress}%",
                                                 fontSize = 11.sp,
-                                                color = if (task.phase == "COMPLETE") Color(0xFF4ADE80) else Color(0xFF38BDF8),
+                                                color = if (task.phase == "COMPLETE") p.accentGreen else p.accentBlue,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Text(
                                                 text = Formatters.formatBytes(task.fileSize),
                                                 fontSize = 11.sp,
-                                                color = Color(0xFF94A3B8)
+                                                color = p.textMuted
                                             )
                                         }
                                         LinearProgressIndicator(
                                             progress = { (task.progress / 100f).coerceIn(0f, 1f) },
                                             modifier = Modifier.fillMaxWidth().height(4.dp),
                                             color = if (task.phase == "COMPLETE") Color(0xFF22C55E) else Color(0xFF0284C7),
-                                            trackColor = Color(0xFF334155)
+                                            trackColor = p.chipBg
                                         )
                                     }
                                 }
@@ -646,8 +670,9 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                color = Color(0xFF0F172A),
+                color = p.barSurface,
                 shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, p.borderColor),
                 modifier = Modifier
                     .fillMaxWidth(0.96f)
                     .fillMaxHeight(0.88f)
@@ -656,18 +681,18 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF1E293B))
+                            .background(p.cardSurface)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(previewSubName.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(previewSubName.orEmpty(), fontWeight = FontWeight.Bold, color = p.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (!previewSubLoading) {
-                                Text("${previewSubLines.size} baris penuh", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                                Text(stringResource(R.string.gemini_lines_count, previewSubLines.size), fontSize = 11.sp, color = p.accentBlue)
                             }
                         }
                         IconButton(onClick = { previewSubName = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                         }
                     }
                     if (previewSubLoading) {
@@ -679,7 +704,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .background(Color(0xFF020617)),
+                                .background(p.consoleSurface),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                         ) {
                             items(previewSubLines.size) { idx ->
@@ -688,13 +713,13 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                                         text = "${(idx + 1).toString().padStart(padW, ' ')}. ",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
+                                        color = p.textMuted
                                     )
                                     Text(
                                         text = previewSubLines[idx],
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 11.5.sp,
-                                        color = Color(0xFFE2E8F0),
+                                        color = p.textPrimary,
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
@@ -715,11 +740,11 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
                     vm.savePikPakCreds(parsed)
                     manualTokenInput = parsed.accessToken
                     showLoginWebView = false
-                    vm.emitToast("✅ Sesi akun PikPak berhasil tersambung!")
+                    vm.emitToast(vm.str(R.string.toast_pikpak_session_connected))
                     vm.refreshPikPakTasks()
                     vm.loadPikPakDirectory("")
                 } else {
-                    vm.emitToast("⚠️ Belum terdeteksi sesi login — pastikan Anda sudah masuk ke halaman My Drive PikPak dulu.")
+                    vm.emitToast(vm.str(R.string.toast_pikpak_session_missing))
                 }
             }
         )
@@ -732,7 +757,7 @@ fun PikPakScreen(vm: AppViewModel, isActive: Boolean = true) {
             onSelect = { id, name ->
                 vm.savePikPakCreds(vm.pikpakCreds.copy(targetFolderId = id, targetFolderName = name))
                 showFolderPicker = false
-                vm.emitToast("📁 Folder tujuan diatur ke: $name")
+                vm.emitToast(vm.str(R.string.toast_pikpak_folder_set, name))
             }
         )
     }
@@ -744,6 +769,8 @@ private fun PikPakLoginWebViewDialog(
     onDismiss: () -> Unit,
     onSessionCaptured: (String) -> Unit
 ) {
+    val p = AppTheme.palette
+    val activityContext = LocalView.current.context
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     Dialog(
@@ -751,8 +778,9 @@ private fun PikPakLoginWebViewDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = Color(0xFF0F172A),
+            color = p.barSurface,
             shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .fillMaxHeight(0.9f)
@@ -761,27 +789,27 @@ private fun PikPakLoginWebViewDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E293B))
+                        .background(p.cardSurface)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("☁️ Login Web Resmi PikPak", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(stringResource(R.string.pikpak_login_dialog_title), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = p.textPrimary)
                         Text(
-                            "Setelah daftar file My Drive muncul, ketuk tombol hijau 'Simpan Sesi Login' di bawah.",
+                            stringResource(R.string.pikpak_login_dialog_desc),
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            color = p.textMuted
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                     }
                 }
 
                 AndroidView(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
+                    factory = {
+                        WebView(activityContext).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.userAgentString = HttpClient.DEFAULT_UA
@@ -798,7 +826,7 @@ private fun PikPakLoginWebViewDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E293B))
+                        .background(p.cardSurface)
                         .padding(10.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
@@ -817,7 +845,7 @@ private fun PikPakLoginWebViewDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("✅ Simpan Sesi Login Ini", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.pikpak_btn_save_session), fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -831,11 +859,12 @@ private fun PikPakFolderPickerDialog(
     onDismiss: () -> Unit,
     onSelect: (folderId: String, folderName: String) -> Unit
 ) {
+    val p = AppTheme.palette
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var folders by remember { mutableStateOf<List<PikPakFolder>>(emptyList()) }
-    val pathStack = remember { mutableStateListOf<Pair<String, String>>() } // (id, name)
+    val pathStack = remember { mutableStateListOf<Pair<String, String>>() }
 
     val currentParentId = pathStack.lastOrNull()?.first.orEmpty()
     val currentParentName = pathStack.lastOrNull()?.second ?: "My Drive (Root)"
@@ -847,7 +876,7 @@ private fun PikPakFolderPickerDialog(
             try {
                 folders = vm.loadPikPakFoldersSuspend(parentId)
             } catch (e: Exception) {
-                error = e.message ?: "Gagal memuat folder"
+                error = e.message ?: "Error"
             } finally {
                 loading = false
             }
@@ -858,8 +887,9 @@ private fun PikPakFolderPickerDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            color = Color(0xFF0F172A),
+            color = p.barSurface,
             shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 320.dp, max = 500.dp)
@@ -870,31 +900,32 @@ private fun PikPakFolderPickerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("📁 Pilih Folder PikPak", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(stringResource(R.string.pikpak_picker_title), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = p.textPrimary)
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (pathStack.isNotEmpty()) {
                         TextButton(onClick = { pathStack.removeAt(pathStack.lastIndex) }) {
-                            Text("⬅ Kembali")
+                            Text(stringResource(R.string.pikpak_btn_back))
                         }
                     }
-                    Text(currentParentName, fontSize = 12.5.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                    Text(currentParentName, fontSize = 12.5.sp, color = p.accentBlue, fontWeight = FontWeight.Bold)
                 }
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        error != null -> Text("Gagal: $error", color = Color(0xFFF87171), fontSize = 12.sp)
-                        folders.isEmpty() -> Text("Tidak ada sub-folder di sini.", color = Color(0xFF94A3B8), fontSize = 12.5.sp)
+                        error != null -> Text("⚠️ $error", color = p.accentRed, fontSize = 12.sp)
+                        folders.isEmpty() -> Text(stringResource(R.string.pikpak_picker_empty), color = p.textMuted, fontSize = 12.5.sp)
                         else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             items(folders, key = { it.id }) { f ->
                                 Surface(
-                                    color = Color(0xFF1E293B),
+                                    color = p.cardSurface,
                                     shape = RoundedCornerShape(8.dp),
+                                    border = p.cardBorder,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { pathStack.add(f.id to f.name) }
@@ -903,10 +934,10 @@ private fun PikPakFolderPickerDialog(
                                         modifier = Modifier.padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.Folder, null, tint = Color(0xFF60A5FA))
+                                        Icon(Icons.Default.Folder, null, tint = p.accentBlue)
                                         Spacer(Modifier.width(10.dp))
-                                        Text(f.name, fontSize = 13.5.sp, modifier = Modifier.weight(1f))
-                                        Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF64748B))
+                                        Text(f.name, fontSize = 13.5.sp, color = p.textPrimary, modifier = Modifier.weight(1f))
+                                        Icon(Icons.Default.ChevronRight, null, tint = p.textMuted)
                                     }
                                 }
                             }
@@ -919,7 +950,7 @@ private fun PikPakFolderPickerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     OutlinedButton(onClick = { onSelect("", "Cloud Download (Default)") }) {
-                        Text("Default Download", fontSize = 12.sp)
+                        Text(stringResource(R.string.pikpak_btn_default_folder), fontSize = 12.sp)
                     }
                     Button(
                         onClick = {
@@ -931,7 +962,7 @@ private fun PikPakFolderPickerDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("Pilih Folder Ini", fontSize = 12.sp)
+                        Text(stringResource(R.string.pikpak_btn_select_this_folder), fontSize = 12.sp, color = Color.White)
                     }
                 }
             }

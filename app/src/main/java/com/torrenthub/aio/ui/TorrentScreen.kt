@@ -10,6 +10,7 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -37,6 +38,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,20 +50,26 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.torrenthub.aio.R
 import com.torrenthub.aio.data.PreviewRepository
 import com.torrenthub.aio.data.TorrentRepository
 import com.torrenthub.aio.model.PillState
+import com.torrenthub.aio.model.PikPakDriveItem
+import com.torrenthub.aio.model.QuickStreamStage
+import com.torrenthub.aio.model.QuickStreamState
 import com.torrenthub.aio.model.SourceStatus
 import com.torrenthub.aio.model.ThreeSourceResult
 import com.torrenthub.aio.model.TorrentItem
 import com.torrenthub.aio.model.WhatsLinkInfo
 import com.torrenthub.aio.network.HttpClient
+import com.torrenthub.aio.util.ExternalPlayerHelper
 import com.torrenthub.aio.util.Formatters
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TorrentScreen(vm: AppViewModel) {
+    val p = AppTheme.palette
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
@@ -88,8 +97,8 @@ fun TorrentScreen(vm: AppViewModel) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Top Search & Controls Surface
         Surface(
-            color = Color(0xFF0F172A),
-            tonalElevation = 3.dp
+            color = p.barSurface,
+            tonalElevation = if (p.isAmoled) 0.dp else 3.dp
         ) {
             Column(
                 modifier = Modifier
@@ -106,11 +115,11 @@ fun TorrentScreen(vm: AppViewModel) {
                         onValueChange = { vm.torrentQuery = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("Cari judul, kode (IPX-090, FC2-...), film…", fontSize = 13.sp) },
+                        placeholder = { Text(stringResource(R.string.torrent_search_placeholder), fontSize = 13.sp) },
                         trailingIcon = {
                             if (vm.torrentQuery.isNotEmpty()) {
                                 IconButton(onClick = { vm.torrentQuery = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Hapus")
+                                    Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.cd_clear))
                                 }
                             }
                         },
@@ -138,7 +147,7 @@ fun TorrentScreen(vm: AppViewModel) {
                                 color = Color.White
                             )
                         } else {
-                            Icon(Icons.Default.Search, contentDescription = "Cari")
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cd_search), tint = Color.White)
                         }
                     }
                 }
@@ -153,24 +162,24 @@ fun TorrentScreen(vm: AppViewModel) {
                 ) {
                     AssistChip(
                         onClick = { showSourcesSheet = true },
-                        label = { Text("Sumber ($activeSourceCount/16)", fontSize = 12.sp) },
+                        label = { Text(stringResource(R.string.torrent_chip_sources, activeSourceCount), fontSize = 12.sp) },
                         leadingIcon = { Icon(Icons.Default.Tune, null, Modifier.size(16.dp)) }
                     )
                     AssistChip(
                         onClick = { showSortSheet = true },
-                        label = { Text(sortLabelShort(vm.torrentSortMode), fontSize = 12.sp) },
+                        label = { Text(sortLabelShortComposable(vm.torrentSortMode), fontSize = 12.sp) },
                         leadingIcon = { Icon(Icons.Default.Sort, null, Modifier.size(16.dp)) }
                     )
                     FilterChip(
                         selected = vm.hideDeadTorrents,
                         onClick = { vm.updateHideDead(!vm.hideDeadTorrents) },
-                        label = { Text("Tanpa 0 SE", fontSize = 12.sp) }
+                        label = { Text(stringResource(R.string.torrent_chip_no_zero_se), fontSize = 12.sp) }
                     )
                     listOf(
                         "4k" to "4K",
-                        "sub" to "Sub/中字",
-                        "unc" to "Uncensored",
-                        "multi" to "Multi-Sumber"
+                        "sub" to stringResource(R.string.torrent_tag_sub),
+                        "unc" to stringResource(R.string.torrent_tag_unc),
+                        "multi" to stringResource(R.string.torrent_tag_multi)
                     ).forEach { (key, lbl) ->
                         FilterChip(
                             selected = vm.torrentTagFilter == key,
@@ -195,14 +204,14 @@ fun TorrentScreen(vm: AppViewModel) {
                                 .weight(1f)
                                 .height(46.dp),
                             singleLine = true,
-                            placeholder = { Text("Filter hasil (mis: 1080p, hevc)…", fontSize = 12.sp) },
+                            placeholder = { Text(stringResource(R.string.torrent_subfilter_placeholder), fontSize = 12.sp) },
                             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
                             shape = RoundedCornerShape(8.dp)
                         )
                         Text(
-                            text = "${displayed.size}/${vm.allTorrents.size} hasil",
+                            text = stringResource(R.string.torrent_results_count, displayed.size, vm.allTorrents.size),
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8),
+                            color = p.textMuted,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -212,15 +221,27 @@ fun TorrentScreen(vm: AppViewModel) {
                 if (vm.sourceStatuses.isNotEmpty()) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(vm.sourceStatuses, key = { it.sourceId }) { st ->
-                            val (bg, fg) = when (st.state) {
-                                PillState.LOADING -> Color(0xFF422006) to Color(0xFFFDE68A)
-                                PillState.OK -> Color(0xFF052E16) to Color(0xFF86EFAC)
-                                PillState.ERROR -> Color(0xFF450A0A) to Color(0xFFFCA5A5)
+                            val (bg, fg) = if (p.isLight) {
+                                when (st.state) {
+                                    PillState.LOADING -> Color(0xFFFEF3C7) to Color(0xFF92400E)
+                                    PillState.OK -> Color(0xFFDCFCE7) to Color(0xFF166534)
+                                    PillState.ERROR -> Color(0xFFFEE2E2) to Color(0xFF991B1B)
+                                }
+                            } else {
+                                when (st.state) {
+                                    PillState.LOADING -> Color(0xFF422006) to Color(0xFFFDE68A)
+                                    PillState.OK -> Color(0xFF052E16) to Color(0xFF86EFAC)
+                                    PillState.ERROR -> Color(0xFF450A0A) to Color(0xFFFCA5A5)
+                                }
                             }
                             val text = when (st.state) {
                                 PillState.LOADING -> "${st.label}: ${st.message.ifBlank { "…" }}"
                                 PillState.OK -> "${st.label}: ${st.count}"
-                                PillState.ERROR -> if (st.canBypassCloudflare) "${st.label}: 403 · 🔓 Bypass" else "${st.label}: ${st.message.take(18)}"
+                                PillState.ERROR -> if (st.canBypassCloudflare) {
+                                    stringResource(R.string.torrent_bypass_pill, st.label)
+                                } else {
+                                    "${st.label}: ${st.message.take(18)}"
+                                }
                             }
                             Surface(
                                 color = bg,
@@ -242,6 +263,9 @@ fun TorrentScreen(vm: AppViewModel) {
                 }
             }
         }
+        if (p.isLight || p.isAmoled) {
+            HorizontalDivider(color = p.borderColor, thickness = 1.dp)
+        }
 
         // Results List
         Box(modifier = Modifier.weight(1f)) {
@@ -256,14 +280,14 @@ fun TorrentScreen(vm: AppViewModel) {
                     Icon(
                         imageVector = Icons.Default.TravelExplore,
                         contentDescription = null,
-                        tint = Color(0xFF475569),
+                        tint = p.textMuted,
                         modifier = Modifier.size(54.dp)
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        text = if (vm.isSearchingTorrents) "Sedang mencari ke semua sumber torrent aktif…"
-                        else "Masukkan kata kunci untuk mencari torrent dari 16 situs sekaligus.",
-                        color = Color(0xFF94A3B8),
+                        text = if (vm.isSearchingTorrents) stringResource(R.string.torrent_empty_searching)
+                        else stringResource(R.string.torrent_empty_idle),
+                        color = p.textMuted,
                         fontSize = 13.sp
                     )
                 }
@@ -290,10 +314,11 @@ fun TorrentScreen(vm: AppViewModel) {
                             onThreeSource = { if (item.videoCode.isNotBlank()) threeSourceCode = item.videoCode },
                             onCopy = {
                                 copyToClipboard(context, item.magnet)
-                                vm.emitToast("📋 Tautan disalin: ${item.title.take(45)}")
+                                vm.emitToast(vm.str(R.string.toast_link_copied, item.title.take(45)))
                             },
                             onSendPikPak = { vm.sendMagnetsToPikPak(listOf(item.magnet)) },
-                            onOpenExternal = { openMagnetExternal(context, item.magnet, vm) },
+                            onQuickStream = { vm.startQuickStream(item) },
+                            onStreamMagnet = { openMagnetExternal(context, item.magnet, vm) },
                             onSearchSubtitle = { code ->
                                 vm.currentTab = 1
                                 vm.runSubtitleSearch(code)
@@ -306,8 +331,9 @@ fun TorrentScreen(vm: AppViewModel) {
             // Sticky Batch Action Bar
             if (selectedList.isNotEmpty()) {
                 Surface(
-                    color = Color(0xFF1E293B),
+                    color = p.cardSurface,
                     shadowElevation = 10.dp,
+                    border = BorderStroke(1.dp, p.borderColor),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -322,31 +348,31 @@ fun TorrentScreen(vm: AppViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            "${selectedList.size} dipilih",
+                            stringResource(R.string.torrent_selected_count, selectedList.size),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = Color.White
+                            color = p.textPrimary
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             TextButton(onClick = { vm.selectedMagnets.clear() }) {
-                                Text("Batal", fontSize = 12.sp)
+                                Text(stringResource(R.string.common_cancel), fontSize = 12.sp)
                             }
                             Button(
                                 onClick = {
                                     copyToClipboard(context, selectedList.joinToString("\n"))
-                                    vm.emitToast("📋 ${selectedList.size} tautan berhasil disalin!")
+                                    vm.emitToast(vm.str(R.string.toast_links_copied, selectedList.size))
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("Salin", fontSize = 12.sp)
+                                Text(stringResource(R.string.common_copy), fontSize = 12.sp, color = Color.White)
                             }
                             Button(
                                 onClick = { vm.sendMagnetsToPikPak(selectedList) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("☁️ PikPak (${selectedList.size})", fontSize = 12.sp)
+                                Text("☁️ PikPak (${selectedList.size})", fontSize = 12.sp, color = Color.White)
                             }
                         }
                     }
@@ -359,7 +385,7 @@ fun TorrentScreen(vm: AppViewModel) {
     if (showSourcesSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSourcesSheet = false },
-            containerColor = Color(0xFF0F172A)
+            containerColor = p.barSurface
         ) {
             Column(
                 modifier = Modifier
@@ -371,10 +397,16 @@ fun TorrentScreen(vm: AppViewModel) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Pilih Sumber Torrent (16 Situs)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        stringResource(R.string.torrent_sources_sheet_title),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = p.textPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
                     Row {
-                        TextButton(onClick = { vm.setAllSources(true) }) { Text("Semua") }
-                        TextButton(onClick = { vm.setAllSources(false) }) { Text("Reset") }
+                        TextButton(onClick = { vm.setAllSources(true) }) { Text(stringResource(R.string.common_all)) }
+                        TextButton(onClick = { vm.setAllSources(false) }) { Text(stringResource(R.string.common_reset)) }
                     }
                 }
                 LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
@@ -397,7 +429,7 @@ fun TorrentScreen(vm: AppViewModel) {
                                     .background(Color(src.colorHex))
                             )
                             Spacer(Modifier.width(10.dp))
-                            Text(src.label, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Text(src.label, fontSize = 14.sp, color = p.textPrimary, modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -410,26 +442,26 @@ fun TorrentScreen(vm: AppViewModel) {
     if (showSortSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSortSheet = false },
-            containerColor = Color(0xFF0F172A)
+            containerColor = p.barSurface
         ) {
             val sortOptions = listOf(
-                "seeders-desc" to "Seeder Terbanyak",
-                "leechers-desc" to "Leecher Terbanyak",
-                "size-desc" to "Ukuran Terbesar",
-                "size-asc" to "Ukuran Terkecil",
-                "date-desc" to "Tanggal Terbaru",
-                "date-asc" to "Tanggal Terlama",
-                "files-desc" to "Jumlah File Terbanyak",
-                "sources-desc" to "Multi-Sumber Terbanyak",
-                "name-asc" to "Nama A → Z",
-                "name-desc" to "Nama Z → A"
+                "seeders-desc" to stringResource(R.string.sort_seeders_desc),
+                "leechers-desc" to stringResource(R.string.sort_leechers_desc),
+                "size-desc" to stringResource(R.string.sort_size_desc),
+                "size-asc" to stringResource(R.string.sort_size_asc),
+                "date-desc" to stringResource(R.string.sort_date_desc),
+                "date-asc" to stringResource(R.string.sort_date_asc),
+                "files-desc" to stringResource(R.string.sort_files_desc),
+                "sources-desc" to stringResource(R.string.sort_sources_desc),
+                "name-asc" to stringResource(R.string.sort_name_asc),
+                "name-desc" to stringResource(R.string.sort_name_desc)
             )
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text("Urutkan Hasil (Sort By)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(stringResource(R.string.torrent_sort_sheet_title), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = p.textPrimary)
                 Spacer(Modifier.height(6.dp))
                 LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                     items(sortOptions, key = { it.first }) { (code, label) ->
@@ -451,7 +483,7 @@ fun TorrentScreen(vm: AppViewModel) {
                                 }
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text(label, fontSize = 14.sp)
+                            Text(label, fontSize = 14.sp, color = p.textPrimary)
                         }
                     }
                 }
@@ -479,6 +511,18 @@ fun TorrentScreen(vm: AppViewModel) {
             }
         )
     }
+
+    vm.quickStreamState?.let { qsState ->
+        QuickStreamDialog(
+            state = qsState,
+            onBackground = { vm.dismissQuickStream(notifyBackground = true) },
+            onClose = { vm.dismissQuickStream(notifyBackground = false) },
+            onWaitMore = { vm.continueQuickStreamWaiting() },
+            onOpenTasks = { vm.openPikPakTasksFromQuickStream() },
+            onRetry = { vm.retryQuickStream() },
+            onSelectVideo = { video -> vm.playQuickStreamCandidate(video) }
+        )
+    }
 }
 
 @Composable
@@ -490,13 +534,16 @@ private fun TorrentResultCard(
     onThreeSource: () -> Unit,
     onCopy: () -> Unit,
     onSendPikPak: () -> Unit,
-    onOpenExternal: () -> Unit,
+    onQuickStream: () -> Unit,
+    onStreamMagnet: () -> Unit,
     onSearchSubtitle: (String) -> Unit
 ) {
+    val p = AppTheme.palette
     Surface(
-        color = Color(0xFF1E293B),
+        color = p.cardSurface,
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 2.dp,
+        border = p.cardBorder,
+        tonalElevation = if (p.isAmoled) 0.dp else 2.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -515,11 +562,11 @@ private fun TorrentResultCard(
                     ) {
                         if (item.qFlags.isEd2k) SmallBadge("ED2K", Color(0xFFEA580C))
                         if (item.qFlags.is4K) SmallBadge("4K", Color(0xFF2563EB))
-                        if (item.qFlags.isSub) SmallBadge("Sub/中字", Color(0xFF16A34A))
-                        if (item.qFlags.isCracked) SmallBadge("Uncensored", Color(0xFFBE123C))
+                        if (item.qFlags.isSub) SmallBadge(stringResource(R.string.torrent_tag_sub), Color(0xFF16A34A))
+                        if (item.qFlags.isCracked) SmallBadge(stringResource(R.string.torrent_tag_unc), Color(0xFFBE123C))
                         if (item.videoCode.isNotBlank()) {
                             SmallBadge(
-                                text = "🎬 ${item.videoCode} · Cari Sub",
+                                text = stringResource(R.string.torrent_badge_search_sub, item.videoCode),
                                 bg = Color(0xFF334155),
                                 onClick = { onSearchSubtitle(item.videoCode) }
                             )
@@ -530,7 +577,7 @@ private fun TorrentResultCard(
                         text = item.title,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.5.sp,
-                        color = Color(0xFFF8FAFC),
+                        color = p.textPrimary,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -560,21 +607,21 @@ private fun TorrentResultCard(
                                 text = Formatters.formatBytes(item.size) + (if (item.files.isNotBlank()) " (${item.files}f)" else ""),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFCBD5E1)
+                                color = p.textSecondary
                             )
                             if (item.seeders != null) {
                                 Text(
                                     text = "▲${item.seeders} ▼${item.leechers ?: 0}",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF4ADE80)
+                                    color = p.accentGreen
                                 )
                             }
                             if (item.dateMs > 0L) {
                                 Text(
                                     text = Formatters.formatDate(item.dateMs),
                                     fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
+                                    color = p.textMuted
                                 )
                             }
                         }
@@ -589,13 +636,14 @@ private fun TorrentResultCard(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                ActionPillButton("📸 Cek", Color(0xFFBE185D), onWhatsLink)
+                ActionPillButton(stringResource(R.string.torrent_btn_check), Color(0xFFBE185D), onWhatsLink)
                 if (item.videoCode.isNotBlank()) {
-                    ActionPillButton("🖼️ 3-Src", Color(0xFF7C3AED), onThreeSource)
+                    ActionPillButton(stringResource(R.string.torrent_btn_3src), Color(0xFF7C3AED), onThreeSource)
                 }
-                ActionPillButton("📋 Magnet", Color(0xFF059669), onCopy)
-                ActionPillButton("☁️ PikPak", Color(0xFF0284C7), onSendPikPak)
-                ActionPillButton("🧲 Buka", Color(0xFFD97706), onOpenExternal)
+                ActionPillButton(stringResource(R.string.torrent_btn_magnet), Color(0xFF059669), onCopy)
+                ActionPillButton(stringResource(R.string.torrent_btn_pikpak), Color(0xFF0284C7), onSendPikPak)
+                ActionPillButton(stringResource(R.string.torrent_btn_quick_stream), Color(0xFF4F46E5), onQuickStream)
+                ActionPillButton(stringResource(R.string.torrent_btn_stream_magnet), Color(0xFFD97706), onStreamMagnet)
             }
         }
     }
@@ -638,6 +686,7 @@ private fun ActionPillButton(label: String, bg: Color, onClick: () -> Unit) {
 /* ================= WHATSLINK SCREENSHOT GALLERY DIALOG ================= */
 @Composable
 private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
+    val p = AppTheme.palette
     val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -650,7 +699,7 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
         try {
             info = PreviewRepository.queryWhatsLink(item.magnet)
         } catch (e: Exception) {
-            error = e.message ?: "Gagal memuat WhatsLink"
+            error = e.message ?: "Error"
         } finally {
             loading = false
         }
@@ -661,8 +710,9 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = Color(0xFF0F172A),
+            color = p.barSurface,
             shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .fillMaxHeight(0.84f)
@@ -671,16 +721,16 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E293B))
+                        .background(p.cardSurface)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("📸 WhatsLink Verifikasi Magnet", fontSize = 11.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
-                        Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(R.string.whatslink_title), fontSize = 11.sp, color = p.accentBlue, fontWeight = FontWeight.Bold)
+                        Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = p.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                     }
                 }
 
@@ -689,26 +739,32 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(10.dp))
-                            Text("Mengambil info & screenshot dari WhatsLink…", fontSize = 13.sp, color = Color(0xFFCBD5E1))
+                            Text(stringResource(R.string.whatslink_loading), fontSize = 13.sp, color = p.textSecondary)
                         }
                     }
                     error != null -> Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-                        Text("Gagal: $error", color = Color(0xFFF87171))
+                        Text(stringResource(R.string.whatslink_error, error.orEmpty()), color = p.accentRed)
                     }
                     info != null -> {
                         val data = info!!
+                        val countStr = if (data.count > 0) data.count.toString() else "—"
+                        val typePart = if (data.fileType.isNotBlank()) stringResource(R.string.whatslink_type_part, data.fileType) else ""
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(8.dp)) {
+                            Surface(color = p.cardSurface, shape = RoundedCornerShape(8.dp), border = p.cardBorder) {
                                 Text(
-                                    text = "File: ${if (data.count > 0) data.count else "—"}  ·  Ukuran: ${Formatters.formatBytes(if (data.size > 0) data.size else item.size)}" +
-                                        (if (data.fileType.isNotBlank()) "  ·  Tipe: ${data.fileType}" else ""),
+                                    text = stringResource(
+                                        R.string.whatslink_summary,
+                                        countStr,
+                                        Formatters.formatBytes(if (data.size > 0) data.size else item.size),
+                                        typePart
+                                    ),
                                     fontSize = 12.sp,
-                                    color = Color(0xFFE2E8F0),
+                                    color = p.textPrimary,
                                     modifier = Modifier.padding(10.dp)
                                 )
                             }
@@ -716,8 +772,8 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
                             if (data.screenshots.isEmpty()) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text(
-                                        "WhatsLink belum memiliki screenshot untuk magnet ini.",
-                                        color = Color(0xFF94A3B8),
+                                        stringResource(R.string.whatslink_no_screenshots),
+                                        color = p.textMuted,
                                         fontSize = 13.sp
                                     )
                                 }
@@ -763,6 +819,7 @@ private fun WhatsLinkDialog(item: TorrentItem, onDismiss: () -> Unit) {
                                         Text(
                                             "${curIdx + 1} / ${data.screenshots.size}",
                                             fontSize = 11.sp,
+                                            color = Color.White,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                         )
@@ -839,11 +896,11 @@ private fun ThreeSourcePreviewDialog(code: String, onDismiss: () -> Unit) {
                         FilterChip(
                             selected = res?.activeSource == id,
                             onClick = { loadSource(id) },
-                            label = { Text(lbl, fontSize = 11.5.sp) }
+                            label = { Text(lbl, fontSize = 11.5.sp, color = Color.White) }
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = Color.White)
                     }
                 }
 
@@ -868,7 +925,11 @@ private fun ThreeSourcePreviewDialog(code: String, onDismiss: () -> Unit) {
                         CircularProgressIndicator()
                     } else if (res?.imageUrl.isNullOrBlank()) {
                         Text(
-                            "Gambar untuk $code tidak ditemukan di ${res?.activeSource ?: "ketiga sumber"}.",
+                            stringResource(
+                                R.string.threesrc_not_found,
+                                code,
+                                res?.activeSource ?: stringResource(R.string.threesrc_all_sources)
+                            ),
                             color = Color(0xFF94A3B8),
                             fontSize = 13.sp,
                             modifier = Modifier.padding(24.dp)
@@ -908,6 +969,8 @@ private fun CloudflareBypassWebViewDialog(
     onDismiss: () -> Unit,
     onCaptured: (html: String, cookies: String) -> Unit
 ) {
+    val p = AppTheme.palette
+    val activityContext = LocalView.current.context
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     Dialog(
@@ -915,8 +978,9 @@ private fun CloudflareBypassWebViewDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = Color(0xFF0F172A),
+            color = p.barSurface,
             shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .fillMaxHeight(0.88f)
@@ -925,28 +989,28 @@ private fun CloudflareBypassWebViewDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E293B))
+                        .background(p.cardSurface)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("🔓 ${status.label} via Browser", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(stringResource(R.string.bypass_dialog_title, status.label), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = p.textPrimary)
                         Text(
-                            "Jika muncul verifikasi keamanan, selesaikan di halaman bawah lalu ketuk 'Ambil Hasil'.",
+                            stringResource(R.string.bypass_dialog_desc),
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            color = p.textMuted
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                     }
                 }
 
                 AndroidView(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
+                    factory = {
+                        WebView(activityContext).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.userAgentString = HttpClient.DEFAULT_UA
@@ -963,7 +1027,7 @@ private fun CloudflareBypassWebViewDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E293B))
+                        .background(p.cardSurface)
                         .padding(10.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
@@ -985,7 +1049,7 @@ private fun CloudflareBypassWebViewDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("📥 Ambil Hasil Halaman Ini", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.bypass_btn_capture), fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -993,17 +1057,18 @@ private fun CloudflareBypassWebViewDialog(
     }
 }
 
-private fun sortLabelShort(mode: String): String = when (mode) {
-    "leechers-desc" -> "Sort: Leecher"
-    "size-desc" -> "Sort: Terbesar"
-    "size-asc" -> "Sort: Terkecil"
-    "date-desc" -> "Sort: Terbaru"
-    "date-asc" -> "Sort: Terlama"
-    "files-desc" -> "Sort: Jml File"
-    "sources-desc" -> "Sort: Multi"
-    "name-asc" -> "Sort: A-Z"
-    "name-desc" -> "Sort: Z-A"
-    else -> "Sort: Seeder"
+@Composable
+private fun sortLabelShortComposable(mode: String): String = when (mode) {
+    "leechers-desc" -> stringResource(R.string.sort_short_leechers)
+    "size-desc" -> stringResource(R.string.sort_short_size_desc)
+    "size-asc" -> stringResource(R.string.sort_short_size_asc)
+    "date-desc" -> stringResource(R.string.sort_short_date_desc)
+    "date-asc" -> stringResource(R.string.sort_short_date_asc)
+    "files-desc" -> stringResource(R.string.sort_short_files)
+    "sources-desc" -> stringResource(R.string.sort_short_multi)
+    "name-asc" -> stringResource(R.string.sort_short_az)
+    "name-desc" -> stringResource(R.string.sort_short_za)
+    else -> stringResource(R.string.sort_short_seeders)
 }
 
 fun copyToClipboard(context: Context, text: String) {
@@ -1011,14 +1076,360 @@ fun copyToClipboard(context: Context, text: String) {
     cm.setPrimaryClip(ClipData.newPlainText("TorrentHub", text))
 }
 
-private fun openMagnetExternal(context: Context, link: String, vm: AppViewModel) {
-    try {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuickStreamDialog(
+    state: QuickStreamState,
+    onBackground: () -> Unit,
+    onClose: () -> Unit,
+    onWaitMore: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onRetry: () -> Unit,
+    onSelectVideo: (PikPakDriveItem) -> Unit
+) {
+    val p = AppTheme.palette
+    val isActivelyPolling = state.stage == QuickStreamStage.SENDING_MAGNET ||
+        state.stage == QuickStreamStage.CACHING_CLOUD ||
+        state.stage == QuickStreamStage.RESOLVING_VIDEO ||
+        state.stage == QuickStreamStage.LAUNCHING_PLAYER
+
+    Dialog(
+        onDismissRequest = {
+            if (isActivelyPolling || state.stage == QuickStreamStage.TIMEOUT) onBackground() else onClose()
+        },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            color = p.barSurface,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .wrapContentHeight()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(p.cardSurface)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.qs_dialog_title),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = p.accentBlue
+                        )
+                        Text(
+                            text = state.torrentTitle,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = p.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            if (isActivelyPolling || state.stage == QuickStreamStage.TIMEOUT) onBackground() else onClose()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = stringResource(R.string.cd_close),
+                            tint = p.textPrimary
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    when (state.stage) {
+                        QuickStreamStage.SENDING_MAGNET,
+                        QuickStreamStage.CACHING_CLOUD,
+                        QuickStreamStage.RESOLVING_VIDEO,
+                        QuickStreamStage.LAUNCHING_PLAYER -> {
+                            val stepLabel = when (state.stage) {
+                                QuickStreamStage.SENDING_MAGNET -> stringResource(R.string.qs_step_sending)
+                                QuickStreamStage.CACHING_CLOUD -> stringResource(
+                                    R.string.qs_step_caching,
+                                    state.phaseLabel,
+                                    state.progress
+                                )
+                                QuickStreamStage.RESOLVING_VIDEO -> stringResource(R.string.qs_step_resolving)
+                                QuickStreamStage.LAUNCHING_PLAYER -> stringResource(R.string.qs_step_launching)
+                                else -> ""
+                            }
+
+                            Surface(
+                                color = p.cardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = p.cardBorder,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = p.accentBlue
+                                        )
+                                        Text(
+                                            text = stepLabel,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = p.textPrimary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    if (state.stage == QuickStreamStage.CACHING_CLOUD && state.progress > 0) {
+                                        LinearProgressIndicator(
+                                            progress = { (state.progress / 100f).coerceIn(0f, 1f) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(50)),
+                                            color = p.accentBlue,
+                                            trackColor = p.chipBg
+                                        )
+                                    } else {
+                                        LinearProgressIndicator(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(50)),
+                                            color = p.accentBlue,
+                                            trackColor = p.chipBg
+                                        )
+                                    }
+
+                                    if (state.elapsedSec > 0) {
+                                        Text(
+                                            text = stringResource(R.string.qs_elapsed_sec, state.elapsedSec),
+                                            fontSize = 11.5.sp,
+                                            color = p.textMuted
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = onBackground) {
+                                    Text(stringResource(R.string.qs_btn_background), fontSize = 12.5.sp)
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                OutlinedButton(
+                                    onClick = onOpenTasks,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(stringResource(R.string.qs_btn_open_tasks), fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        QuickStreamStage.SELECT_VIDEO -> {
+                            Text(
+                                text = stringResource(R.string.qs_select_video_title, state.candidateVideos.size),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = p.accentGreen
+                            )
+                            Text(
+                                text = stringResource(R.string.qs_select_video_hint),
+                                fontSize = 12.sp,
+                                color = p.textSecondary
+                            )
+
+                            val rowBorder = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 320.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                items(state.candidateVideos, key = { it.id }) { vid ->
+                                    val isBusy = state.busyVideoId == vid.id
+                                    Surface(
+                                        color = p.subCardSurface,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = rowBorder,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = state.busyVideoId == null) { onSelectVideo(vid) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Movie,
+                                                contentDescription = null,
+                                                tint = p.accentBlue,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = vid.name,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = p.textPrimary,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = Formatters.formatBytes(vid.size),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = p.accentBlue
+                                                )
+                                            }
+                                            if (isBusy) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = p.accentGreen
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircle,
+                                                    contentDescription = null,
+                                                    tint = p.accentGreen,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(onClick = onClose) {
+                                    Text(stringResource(R.string.common_close), fontSize = 12.5.sp)
+                                }
+                            }
+                        }
+
+                        QuickStreamStage.TIMEOUT -> {
+                            Surface(
+                                color = p.cardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = p.cardBorder,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.qs_timeout_title, state.progress),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = p.accentAmber
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.qs_timeout_desc),
+                                        fontSize = 12.sp,
+                                        color = p.textSecondary
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { (state.progress / 100f).coerceIn(0f, 1f) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(50)),
+                                        color = p.accentAmber,
+                                        trackColor = p.chipBg
+                                    )
+                                }
+                            }
+
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                TextButton(onClick = onBackground) {
+                                    Text(stringResource(R.string.qs_btn_background), fontSize = 12.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = onOpenTasks,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.qs_btn_open_tasks), fontSize = 12.sp)
+                                }
+                                Button(
+                                    onClick = onWaitMore,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(stringResource(R.string.qs_btn_wait_more), fontSize = 12.sp, color = Color.White)
+                                }
+                            }
+                        }
+
+                        QuickStreamStage.ERROR -> {
+                            Surface(
+                                color = p.cardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = p.cardBorder,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "⚠️ ${state.errorMessage}",
+                                    fontSize = 12.5.sp,
+                                    color = p.accentRed,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = onClose) {
+                                    Text(stringResource(R.string.common_close), fontSize = 12.5.sp)
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Button(
+                                    onClick = onRetry,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(stringResource(R.string.qs_btn_retry), fontSize = 12.sp, color = Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        copyToClipboard(context, link)
-        vm.emitToast("Aplikasi torrent lokal tidak ditemukan — tautan disalin ke clipboard.")
     }
+}
+
+private fun openMagnetExternal(context: Context, link: String, vm: AppViewModel) {
+    ExternalPlayerHelper.streamMagnetWithChooser(context, link, vm)
 }

@@ -39,10 +39,57 @@ object GeminiEngine {
     const val DEFAULT_NOTES_POLISH =
         "Perbaiki kalimat bahasa Indonesia hasil terjemahan mesin ini agar terdengar seperti percakapan sehari-hari yang alami, luwes, dan emosional. Ubah struktur kalimat yang kaku atau terlalu harfiah menjadi bahasa lisan yang enak dibaca di layar. Sesuaikan kata ganti orang (aku/kamu, saya/Anda, atau panggilan nama/kakak/adik/pak/bu) secara konsisten berdasarkan konteks dan hubungan antarkarakter. Jangan meringkas, menghilangkan, atau menyensor dialog, serta pertahankan tanda baca, jeda baris, dan format asli subtitle."
 
+    private val BUILTIN_NOTES_TRANSLATE = mapOf(
+        "id" to DEFAULT_NOTES_TRANSLATE,
+        "en" to "Translate dialogue into natural, idiomatic, spoken everyday English that fits the scene context—avoid stiff word-for-word translation. Match register, contractions, and tone to character relationships, and preserve emotional nuance, interjections, and nicknames without censoring or truncating meaning.",
+        "zh" to "将对白翻译为自然流畅、口语化且符合剧情语境的现代简体中文日常用语，避免生硬的逐字直译。根据人物关系合理处理称谓与语气词，完整保留情感色彩、简短感叹及特色称呼，不要删减、概括或审查原意。",
+        "ja" to "セリフを場面の文脈に合った自然で感情豊かな日常会話の日本語に翻訳してください。直訳調を避け、登場人物の関係性に応じて一人称・二人称・敬語やタメ口・語尾のニュアンスを自然に調整し、検閲や省略をせず元の意味と感情を忠実に保ってください。",
+        "ko" to "대사를 장면의 맥락에 맞는 자연스럽고 생동감 있는 일상 구어체 한국어로 번역하세요. 딱딱한 직역을 피하고 등장인물 간의 관계에 맞춰 반말/존댓말과 호칭을 일관되게 조절하며, 검열이나 생략 없이 원문의 감정선과 뉘앙스를 그대로 살려주세요."
+    )
+
+    private val BUILTIN_NOTES_POLISH = mapOf(
+        "id" to DEFAULT_NOTES_POLISH,
+        "en" to "Rewrite these machine-translated English subtitle lines so they read like natural, fluent, emotional spoken dialogue on screen. Fix awkward or overly literal phrasing while keeping character voice consistent. Never summarize, omit, or censor dialogue, and preserve original line breaks and tags.",
+        "zh" to "润色并修复这些机器翻译的简体中文字幕，使其读起来像自然流畅、富有情感的影视口语对白。消除生硬直译的语病，统一人物称谓与口吻，切勿删减、合并、概括或审查台词，保留原有的换行和格式标签。",
+        "ja" to "機械翻訳された不自然な日本語字幕を、画面で読みやすく自然で感情のこもった話し言葉のセリフに推敲・修正してください。登場人物の関係性に合った口調や人称を一貫させ、要約・省略・検閲をせず元の改行とタグを維持してください。",
+        "ko" to "기계번역으로 어색해진 한국어 자막을 화면에서 읽기 편하고 자연스러운 일상 구어체 대사로 교정해 주세요. 인물 관계에 맞는 말투(반말/존댓말)와 호칭을 일관성 있게 다듬되, 대사를 요약·생략·검열하지 말고 줄바꿈과 태그를 그대로 유지하세요."
+    )
+
+    fun defaultNotesTranslate(targetLang: String): String =
+        BUILTIN_NOTES_TRANSLATE[targetLang.lowercase(Locale.ROOT)] ?: DEFAULT_NOTES_TRANSLATE
+
+    fun defaultNotesPolish(targetLang: String): String =
+        BUILTIN_NOTES_POLISH[targetLang.lowercase(Locale.ROOT)] ?: DEFAULT_NOTES_POLISH
+
+    fun isBuiltInDefaultTranslateNotes(notes: String): Boolean {
+        val clean = notes.trim()
+        return clean.isEmpty() || BUILTIN_NOTES_TRANSLATE.values.any { it.trim() == clean }
+    }
+
+    fun isBuiltInDefaultPolishNotes(notes: String): Boolean {
+        val clean = notes.trim()
+        return clean.isEmpty() || BUILTIN_NOTES_POLISH.values.any { it.trim() == clean }
+    }
+
+    fun targetLanguageEnglishName(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
+        "en" -> "English"
+        "zh" -> "Simplified Chinese (简体中文)"
+        "ja" -> "Japanese (日本語)"
+        "ko" -> "Korean (한국어)"
+        else -> "Indonesian (Bahasa Indonesia)"
+    }
+
     private val CJK_RE = Regex("[\\u3040-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF]")
+    private val JA_KANA_RE = Regex("[\\u3040-\\u30FF]")
+    private val KO_HANGUL_RE = Regex("[\\uAC00-\\uD7AF]")
+    private val ZH_HAN_RE = Regex("[\\u3400-\\u4DBF\\u4E00-\\u9FFF]")
     private val LETTER_OR_DIGIT_RE = Regex("[\\p{L}\\p{N}]")
     private val ID_WORDS_RE = Regex(
         "\\b(yang|dan|tidak|nggak|gak|aku|kamu|saya|anda|ini|itu|dengan|untuk|sudah|belum|jangan|bisa|kenapa|apa|kalau|tapi|mereka|kita|kami|dia|mau|lagi|saja|aja|banget|dong|sih|kok|akan|dari|dalam|harus|ingin|tolong)\\b",
+        RegexOption.IGNORE_CASE
+    )
+    private val EN_WORDS_RE = Regex(
+        "\\b(the|and|you|that|this|with|have|what|don't|can't|i'm|it's|they|from|your|about|know|just|want|here|there|would|could|should|please|really)\\b",
         RegexOption.IGNORE_CASE
     )
     private val WATERMARK_AD_RE = Regex(
@@ -73,7 +120,7 @@ object GeminiEngine {
         }
     }
 
-    fun detectLanguageMode(texts: List<String>): String {
+    fun detectLanguageMode(texts: List<String>, targetLang: String = "id"): String {
         val nonEmpty = texts.filter { it.isNotBlank() && !isWatermarkLine(it) }
         if (nonEmpty.isEmpty()) return "translate"
         val step = maxOf(1, nonEmpty.size / 40)
@@ -83,37 +130,59 @@ object GeminiEngine {
             sample.add(nonEmpty[i])
             i += step
         }
-        var cjkLines = 0
+
+        var jaLines = 0
+        var koLines = 0
+        var zhLines = 0
         var idLines = 0
         var totalIdHits = 0
+        var enLines = 0
+        var totalEnHits = 0
+
         for (line in sample) {
-            if (CJK_RE.containsMatchIn(line)) {
-                cjkLines++
-            } else {
-                val hits = ID_WORDS_RE.findAll(line).count()
-                if (hits > 0) {
-                    idLines++
-                    totalIdHits += hits
+            when {
+                JA_KANA_RE.containsMatchIn(line) -> jaLines++
+                KO_HANGUL_RE.containsMatchIn(line) -> koLines++
+                ZH_HAN_RE.containsMatchIn(line) -> zhLines++
+                else -> {
+                    val idHits = ID_WORDS_RE.findAll(line).count()
+                    val enHits = EN_WORDS_RE.findAll(line).count()
+                    if (idHits > 0) {
+                        idLines++
+                        totalIdHits += idHits
+                    }
+                    if (enHits > 0) {
+                        enLines++
+                        totalEnHits += enHits
+                    }
                 }
             }
         }
-        if (cjkLines >= 3) return "translate"
-        if (idLines >= maxOf(3, (sample.size * 0.28).toInt()) && totalIdHits >= 5) return "polish"
-        return "translate"
+
+        val threshold = maxOf(3, (sample.size * 0.28).toInt())
+        val isAlreadyTarget = when (targetLang.lowercase(Locale.ROOT)) {
+            "ja" -> jaLines >= threshold
+            "ko" -> koLines >= threshold
+            "zh" -> zhLines >= threshold && jaLines < 2 && koLines < 2
+            "en" -> (jaLines + koLines + zhLines) < 3 && enLines >= threshold && totalEnHits >= 5 && totalEnHits > totalIdHits
+            else -> (jaLines + koLines + zhLines) < 3 && idLines >= threshold && totalIdHits >= 5
+        }
+        return if (isAlreadyTarget) "polish" else "translate"
     }
 
     fun isWatermarkLine(text: String): Boolean = WATERMARK_AD_RE.containsMatchIn(text)
 
-    fun formatOutputFileName(origName: String, nameMode: String): String {
+    fun formatOutputFileName(origName: String, nameMode: String, targetLang: String = "id"): String {
         val ext = origName.substringAfterLast('.', "srt").lowercase(Locale.ROOT)
         val base = origName.replace(Regex("\\.[^.]+$"), "")
+        val langSuffix = targetLang.lowercase(Locale.ROOT).ifBlank { "id" }
         return when (nameMode) {
             "code-upper" -> {
                 val code = Formatters.extractUpperCodeFromFileName(origName)
                 if (code.isNotBlank()) "$code.$ext" else "${base.uppercase(Locale.ROOT)}.$ext"
             }
             "upper-full" -> "${base.uppercase(Locale.ROOT)}.$ext"
-            ".id" -> "$base.id.$ext"
+            ".id", ".lang" -> "$base.$langSuffix.$ext"
             else -> origName
         }
     }
@@ -345,6 +414,7 @@ object GeminiEngine {
         val keys: List<String>,
         val model: String,
         val taskMode: String, // "translate" or "polish"
+        val targetLang: String = "id",
         val notes: String,
         val glossary: String,
         val relaxSafety: Boolean = true,
@@ -390,9 +460,9 @@ object GeminiEngine {
                 val ms = System.currentTimeMillis() - t0
                 val masked = k.take(10) + "…"
                 if (code == 200) {
-                    logs.add("✅ Key #${idx + 1} [$provider · $model] ($masked): BERHASIL ($ms ms)")
+                    logs.add("✅ Key #${idx + 1} [$provider · $model] ($masked): OK ($ms ms)")
                 } else {
-                    logs.add("❌ Key #${idx + 1} [$provider · $model] ($masked): GAGAL — ${HttpClient.buildErrorDetail(code, text)}")
+                    logs.add("❌ Key #${idx + 1} [$provider · $model] ($masked): FAIL — ${HttpClient.buildErrorDetail(code, text)}")
                 }
             } catch (e: Exception) {
                 logs.add("⚠️ Key #${idx + 1} [$provider] (${k.take(10)}…): ERROR — ${e.message}")
@@ -452,22 +522,32 @@ object GeminiEngine {
     }
 
     private fun buildSystemPrompt(cfg: TranslateConfig, prevCtx: List<ContextPair>): String {
+        val langName = targetLanguageEnglishName(cfg.targetLang)
+        val langRule = when (cfg.targetLang.lowercase(Locale.ROOT)) {
+            "en" -> "Use natural, idiomatic everyday spoken English with appropriate tone, contractions, and register matching character relationships."
+            "zh" -> "Use natural, idiomatic everyday spoken Simplified Chinese (简体中文) with appropriate tone, particles, and forms of address matching character relationships."
+            "ja" -> "Use natural, idiomatic spoken Japanese (日本語) with context-appropriate speech style, politeness levels (keigo/casual), pronouns, and sentence-ending particles."
+            "ko" -> "Use natural, idiomatic spoken Korean (한국어) with context-appropriate speech levels (banmal/jondaetmal), pronouns, and honorifics matching character relationships."
+            else -> "Infer character relationships and emotional tone to keep Indonesian pronouns (aku/kamu, saya/Anda, honorifics, or names) natural and consistent."
+        }
+
         val lines = if (cfg.taskMode == "polish") {
             mutableListOf(
-                "You are an expert Indonesian subtitle editor specializing in fixing machine-translated (MTL) Indonesian subtitles.",
-                "Rewrite stiff, literal, or awkward machine-translated lines into natural, idiomatic, spoken Indonesian that flows smoothly on screen.",
-                "Infer character relationships and emotional tone from surrounding dialogue to keep pronouns (aku/kamu, saya/Anda, honorifics, or names) consistent across lines.",
+                "You are an expert $langName subtitle editor specializing in fixing machine-translated (MTL) subtitles.",
+                "Rewrite stiff, literal, or awkward machine-translated lines into natural, idiomatic, spoken $langName that flows smoothly on screen.",
+                langRule,
                 "Keep dialogue concise and easy to read while preserving the exact original meaning, intensity, and nuance. Never censor, sanitize, summarize, omit, or split/merge subtitle entries.",
                 "Preserve any formatting tags (such as <i>, </i>, <b>, </b>, <u>, </u>) and explicit line breaks (\\n or \\N) in their natural positions.",
-                "Return ONLY a valid JSON array of strings with the exact same length and order as the input array. Never merge or split entries."
+                "Return ONLY a valid JSON array of strings in $langName with the exact same length and order as the input array. Never merge or split entries."
             )
         } else {
             mutableListOf(
-                "Translate each subtitle entry into natural, fluent, context-aware Indonesian.",
-                "Preserve the original meaning, emotions, tone, and character relationships. Use natural everyday Indonesian, not literal translation.",
+                "Translate each subtitle entry into natural, fluent, context-aware $langName.",
+                "Preserve the original meaning, emotions, tone, and character relationships. Do not translate stiffly word-for-word.",
+                langRule,
                 "Do not censor, summarize, omit, or invent dialogue.",
                 "Preserve any formatting tags (such as <i>, </i>, <b>, </b>, <u>, </u>) and explicit line breaks (\\n or \\N) in their natural positions.",
-                "Return ONLY a valid JSON array of strings with the exact same length and order as the input array. Never merge or split entries."
+                "Return ONLY a valid JSON array of strings in $langName with the exact same length and order as the input array. Never merge or split entries."
             )
         }
         if (cfg.notes.isNotBlank()) {
@@ -508,7 +588,6 @@ object GeminiEngine {
         val genCfg = JSONObject()
             .put("responseMimeType", "application/json")
             .put("responseSchema", JSONObject().put("type", "ARRAY").put("items", JSONObject().put("type", "STRING")))
-        // Only pass temperature for older 2.x models; Gemini 3.x+ deprecates sampling parameters
         if (model.startsWith("gemini-2", ignoreCase = true) || model.startsWith("gemini-1", ignoreCase = true)) {
             genCfg.put("temperature", if (cfg.taskMode == "polish") 0.3 else 0.35)
         }
@@ -540,30 +619,30 @@ object GeminiEngine {
                 useLongTimeout = true
             )
         } catch (e: Exception) {
-            throw RetryableException("Jaringan terganggu (${e.message})")
+            throw RetryableException("Network error (${e.message})")
         }
 
         if (code == 429) {
             val detail = HttpClient.buildErrorDetail(code, respText)
-            throw KeySwitchException(429, if (detail.contains("limit: 0")) "Kuota 0 pada model $model" else "Limit 429 Kuota/RPM")
+            throw KeySwitchException(429, if (detail.contains("limit: 0")) "Quota 0 on $model" else "HTTP 429 Quota/RPM")
         }
         if (code == 400 || code == 403 || code == 404) {
             val msg = HttpClient.buildErrorDetail(code, respText)
             throw KeySwitchException(code, msg)
         }
         if (code >= 500) {
-            throw KeySwitchException(code, "Server Google penuh ($code) pada $model")
+            throw KeySwitchException(code, "Google server busy ($code) on $model")
         }
         if (code != 200) throw Exception(HttpClient.buildErrorDetail(code, respText))
 
         val root = JSONObject(respText)
         val blockReason = root.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
-        if (blockReason.isNotBlank()) throw BlockedException("Diblokir Google: $blockReason")
+        if (blockReason.isNotBlank()) throw BlockedException("Blocked by Google: $blockReason")
 
         val cand = root.optJSONArray("candidates")?.optJSONObject(0)
-            ?: throw BlockedException("Respons kosong dari Google")
+            ?: throw BlockedException("Empty response from Google")
         val contentObj = cand.optJSONObject("content")
-            ?: throw BlockedException("Diblokir Google (${cand.optString("finishReason")})")
+            ?: throw BlockedException("Blocked by Google (${cand.optString("finishReason")})")
         val parts = contentObj.optJSONArray("parts") ?: JSONArray()
         val combined = buildString {
             for (i in 0 until parts.length()) {
@@ -610,27 +689,27 @@ object GeminiEngine {
                 useLongTimeout = true
             )
         } catch (e: Exception) {
-            throw RetryableException("Jaringan OpenRouter terganggu (${e.message})")
+            throw RetryableException("OpenRouter network error (${e.message})")
         }
 
         if (code == 429 || code == 401 || code == 402 || code == 403) {
             throw KeySwitchException(code, HttpClient.buildErrorDetail(code, respText))
         }
-        if (code >= 500) throw RetryableException("Server OpenRouter sibuk ($code)")
+        if (code >= 500) throw RetryableException("OpenRouter server busy ($code)")
         if (code != 200) throw Exception(HttpClient.buildErrorDetail(code, respText))
 
         val root = JSONObject(respText)
         root.optJSONObject("error")?.let {
-            throw RetryableException(it.optString("message", "Error OpenRouter"))
+            throw RetryableException(it.optString("message", "OpenRouter error"))
         }
         val choice = root.optJSONArray("choices")?.optJSONObject(0)
         val content = choice?.optJSONObject("message")?.optString("content").orEmpty()
         if (content.isBlank()) {
             val reason = choice?.optString("finish_reason").orEmpty()
             if (Regex("content_filter|safety", RegexOption.IGNORE_CASE).containsMatchIn(reason)) {
-                throw BlockedException("Diblokir filter: $reason")
+                throw BlockedException("Blocked by filter: $reason")
             }
-            throw RetryableException("Respons kosong ($reason)")
+            throw RetryableException("Empty response ($reason)")
         }
         return try {
             parseJsonStringList(content)
@@ -647,7 +726,8 @@ object GeminiEngine {
         isCancelled: () -> Boolean,
         onProgress: (pct: Int, status: String, currentTr: List<String>, previewPair: String?) -> Unit
     ): List<String> {
-        val includeAll = cfg.includeAllLines || cfg.taskMode == "polish"
+        val hasCjkDialogue = sub.texts.count { CJK_RE.containsMatchIn(it) } >= 3
+        val includeAll = cfg.includeAllLines || cfg.taskMode == "polish" || !hasCjkDialogue
         val indexes = sub.texts.indices.filter { i ->
             val t = sub.texts[i]
             t.isNotBlank() &&
@@ -659,13 +739,13 @@ object GeminiEngine {
             ?: MutableList(sub.texts.size) { "" }
 
         if (indexes.isEmpty()) {
-            onProgress(100, "Tidak ada baris dialog yang perlu diproses.", tr, null)
+            onProgress(100, "0/0", tr, null)
             return tr
         }
 
         val remaining = if (limitLines > 0) indexes.take(limitLines) else indexes.filter { tr[it].isBlank() }
         if (remaining.isEmpty()) {
-            onProgress(100, "Selesai (${indexes.size}/${indexes.size} baris).", tr, null)
+            onProgress(100, "${indexes.size}/${indexes.size}", tr, null)
             return tr
         }
 
@@ -682,7 +762,7 @@ object GeminiEngine {
             val totalKeys = cfg.keys.size
 
             while (true) {
-                if (isCancelled()) throw Exception("Dibatalkan")
+                if (isCancelled()) throw Exception("Cancelled")
                 val key = cfg.keys[keyIdx % totalKeys]
                 val useOR = isOpenRouterKey(key)
 
@@ -697,7 +777,7 @@ object GeminiEngine {
                     if (!useOR && firstOr >= 0) {
                         onProgress(
                             ((doneCount * 100) / targetTotal).coerceIn(0, 99),
-                            "Sensor Google -> alihkan batch ke OpenRouter…",
+                            "Google safety filter -> OpenRouter…",
                             tr,
                             null
                         )
@@ -711,7 +791,7 @@ object GeminiEngine {
                         keyIdx = (keyIdx + 1) % totalKeys
                         onProgress(
                             ((doneCount * 100) / targetTotal).coerceIn(0, 99),
-                            "$shortReason -> pindah ke Key #${keyIdx + 1}…",
+                            "$shortReason -> Key #${keyIdx + 1}…",
                             tr,
                             null
                         )
@@ -719,8 +799,7 @@ object GeminiEngine {
                         continue
                     }
 
-                    // All keys failed in a full cycle: if model-level issue (503 busy / 404 / limit: 0), auto-fallback to next free Gemini model!
-                    if (!useOR && (e.httpCode == 503 || e.httpCode == 404 || shortReason.contains("Kuota 0"))) {
+                    if (!useOR && (e.httpCode == 503 || e.httpCode == 404 || shortReason.contains("Quota 0"))) {
                         val nextModel = FALLBACK_GOOGLE_CHAIN.firstOrNull {
                             !it.equals(activeModel, ignoreCase = true) &&
                                 FALLBACK_GOOGLE_CHAIN.indexOf(it) > FALLBACK_GOOGLE_CHAIN.indexOf(activeModel)
@@ -732,7 +811,7 @@ object GeminiEngine {
                             keyIdx = 0
                             onProgress(
                                 ((doneCount * 100) / targetTotal).coerceIn(0, 99),
-                                "$oldModel bermasalah ($shortReason) -> otomatis beralih ke $activeModel…",
+                                "$oldModel ($shortReason) -> $activeModel…",
                                 tr,
                                 null
                             )
@@ -742,14 +821,14 @@ object GeminiEngine {
                     }
 
                     if ((e.httpCode == 401 || e.httpCode == 402 || e.httpCode == 403) && keySwitches >= totalKeys) {
-                        throw Exception("Key ditolak ($shortReason)")
+                        throw Exception("API key rejected ($shortReason)")
                     }
 
                     keySwitches = 0
                     keyIdx = (keyIdx + 1) % totalKeys
                     onProgress(
                         ((doneCount * 100) / targetTotal).coerceIn(0, 99),
-                        "Semua key tertahan ($shortReason). Menunggu 10 dtk…",
+                        "$shortReason — waiting 10s…",
                         tr,
                         null
                     )
@@ -760,7 +839,7 @@ object GeminiEngine {
                     if (totalKeys > 1) keyIdx = (keyIdx + 1) % totalKeys
                     onProgress(
                         ((doneCount * 100) / targetTotal).coerceIn(0, 99),
-                        "${e.message} — mencoba ulang (#$netRetry)…",
+                        "${e.message} — retry #$netRetry…",
                         tr,
                         null
                     )
@@ -770,7 +849,7 @@ object GeminiEngine {
         }
 
         suspend fun translateGroupRecursive(items: List<String>, prevCtx: List<ContextPair>): List<String> {
-            if (isCancelled()) throw Exception("Dibatalkan")
+            if (isCancelled()) throw Exception("Cancelled")
             return try {
                 val out = translateWithRotation(items, prevCtx)
                 if (out.size != items.size) throw Exception("mismatch")
@@ -782,7 +861,7 @@ object GeminiEngine {
                         failedLines++
                         if (e is BlockedException) {
                             blockStreak++
-                            if (blockStreak >= 8) throw Exception("Model memblokir berturut-turut: ${e.message}")
+                            if (blockStreak >= 8) throw Exception("Repeated safety block: ${e.message}")
                         }
                         listOf("")
                     } else {
@@ -797,10 +876,10 @@ object GeminiEngine {
             }
         }
 
-        val verb = if (cfg.taskMode == "polish") "Memperbaiki ID" else "Menerjemahkan"
+        val langTag = cfg.targetLang.uppercase(Locale.ROOT)
         var pos = 0
         while (pos < remaining.size) {
-            if (isCancelled()) throw Exception("Dibatalkan")
+            if (isCancelled()) throw Exception("Cancelled")
             if (pos > 0) {
                 val usingOR = isOpenRouterKey(cfg.keys[keyIdx % cfg.keys.size])
                 delay(if (usingOR) 400L else 1100L)
@@ -825,11 +904,11 @@ object GeminiEngine {
             doneCount += group.size
             val pct = ((doneCount * 100) / targetTotal).coerceIn(1, 100)
             val lastIdx = group.last()
-            val samplePair = "[#${lastIdx + 1}] ${sub.texts[lastIdx].replace("\n", " / ")}\n→ ${tr[lastIdx].ifBlank { "(dilewati)" }.replace("\n", " / ")}"
+            val samplePair = "[#${lastIdx + 1}] ${sub.texts[lastIdx].replace("\n", " / ")}\n→ ${tr[lastIdx].ifBlank { "(—)" }.replace("\n", " / ")}"
             val keyLabel = if (isOpenRouterKey(cfg.keys[keyIdx % cfg.keys.size])) "OpenRouter" else "Key #${(keyIdx % cfg.keys.size) + 1} · $activeModel"
             onProgress(
                 pct,
-                "[$keyLabel] $verb… $doneCount/$targetTotal ($pct%)" + (if (failedLines > 0) " | gagal: $failedLines" else ""),
+                "[$keyLabel → $langTag] $doneCount/$targetTotal ($pct%)" + (if (failedLines > 0) " | err: $failedLines" else ""),
                 tr,
                 samplePair
             )

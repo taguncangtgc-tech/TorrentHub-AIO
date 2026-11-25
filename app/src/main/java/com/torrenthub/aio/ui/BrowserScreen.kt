@@ -11,7 +11,6 @@ import android.os.Message
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -20,9 +19,11 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -43,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -55,6 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.torrenthub.aio.R
 import com.torrenthub.aio.data.UserscriptManager
 import com.torrenthub.aio.model.UserscriptItem
 import com.torrenthub.aio.model.UserscriptMenuCmd
@@ -112,10 +116,8 @@ class SmartBrowserWebView(context: Context) : WebView(context) {
         if (range - extent <= minScrollableOverflowPx) return false
         val offset = computeHorizontalScrollOffset()
         return if (dx < 0f) {
-            // Finger moves left -> viewport pans right
             (range - extent - offset) > edgeThresholdPx
         } else {
-            // Finger moves right -> viewport pans left
             offset > edgeThresholdPx
         }
     }
@@ -134,8 +136,7 @@ class SmartWebViewContainer(
     private var gestureDecided = false
 
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        // Ignore unconditional disallow calls from Chromium internals so HorizontalPager
-        // interception is controlled strictly by SmartWebViewContainer's gesture arbitration.
+        // Controlled strictly by SmartWebViewContainer gesture arbitration & allowTabSwipe setting.
     }
 
     private fun setPagerDisallowIntercept(disallow: Boolean) {
@@ -143,6 +144,18 @@ class SmartWebViewContainer(
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (!holder.allowTabSwipe) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE -> {
+                    setPagerDisallowIntercept(true)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    setPagerDisallowIntercept(false)
+                }
+            }
+            return super.dispatchTouchEvent(ev)
+        }
+
         val wv = holder.webView
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -168,15 +181,12 @@ class SmartWebViewContainer(
                     val absDy = kotlin.math.abs(dy)
 
                     if (absDx <= touchSlop && absDy <= touchSlop && (ev.eventTime - downTime) > 300L) {
-                        // Long-press (text selection / context menu) stays in WebView
                         gestureDecided = true
                         setPagerDisallowIntercept(true)
                     } else if (absDy > decisionThreshold && absDy >= absDx) {
-                        // Vertical scroll stays in WebView
                         gestureDecided = true
                         setPagerDisallowIntercept(true)
                     } else if (absDx > decisionThreshold && absDx > absDy) {
-                        // Horizontal drag: keep in WebView if zoomed/pannable or touching horizontal DOM scroller/slider
                         val domScrolls = if (dx < 0f) holder.domCanScrollRight else holder.domCanScrollLeft
                         val keepInWebView = (wv?.canPanHorizontally(dx) == true) ||
                             domScrolls ||
@@ -205,6 +215,7 @@ class BrowserWebViewHolder {
     var lastAppliedRevision: Int = -1
     var lastAppliedShield: Boolean? = null
 
+    @Volatile var allowTabSwipe: Boolean = true
     @Volatile var domCanScrollLeft: Boolean = false
     @Volatile var domCanScrollRight: Boolean = false
     @Volatile var domIsInteractiveHorizontal: Boolean = false
@@ -229,7 +240,7 @@ class BrowserWebViewHolder {
 
         if (lastAppliedRevision != vm.userscriptRevision) {
             docStartScriptHandler?.remove()
-            val bootstrap = UserscriptManager.buildDocumentBootstrapScript(context, vm.installedUserscripts)
+            val bootstrap = UserscriptManager.buildDocumentBootstrapScript(context.applicationContext, vm.installedUserscripts)
             docStartScriptHandler = WebViewCompat.addDocumentStartJavaScript(wv, bootstrap, setOf("*"))
             lastAppliedRevision = vm.userscriptRevision
         }
@@ -246,15 +257,16 @@ class BrowserWebViewHolder {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    fun getOrCreateContainer(context: Context, vm: AppViewModel): SmartWebViewContainer {
+    fun getOrCreateContainer(activityContext: Context, vm: AppViewModel): SmartWebViewContainer {
+        allowTabSwipe = vm.browserTabSwipeEnabled
         containerView?.let { existingContainer ->
             (existingContainer.parent as? ViewGroup)?.removeView(existingContainer)
-            syncDocumentStartScripts(context, vm)
+            syncDocumentStartScripts(activityContext, vm)
             return existingContainer
         }
 
-        val appCtx = context.applicationContext
-        val wv = SmartBrowserWebView(context).apply {
+        val appCtx = activityContext.applicationContext
+        val wv = SmartBrowserWebView(activityContext).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -291,7 +303,7 @@ class BrowserWebViewHolder {
                             post {
                                 vm.browserSelectedQuery = clean
                                 if (isCopy) {
-                                    vm.emitToast("📋 Teks terdeteksi: ketuk tombol di bawah untuk cari di TorrentHub!")
+                                    vm.emitToast(vm.str(R.string.toast_text_selected_hint))
                                 }
                             }
                         }
@@ -380,7 +392,6 @@ class BrowserWebViewHolder {
                     resultMsg: Message?
                 ): Boolean {
                     if (view == null) return false
-                    // Inspect hit test result — only navigate if user genuinely tapped a non-ad link on same/clean host
                     val hit = view.hitTestResult
                     val targetUrl = hit.extra.orEmpty()
                     if (vm.browserAdShieldEnabled) {
@@ -436,7 +447,6 @@ class BrowserWebViewHolder {
                     if (!url.startsWith("http://", ignoreCase = true) &&
                         !url.startsWith("https://", ignoreCase = true)
                     ) {
-                        // Block unwanted app-hijack intents (e.g., lazada://, shopee://, intent:// ads)
                         if (vm.browserAdShieldEnabled) {
                             vm.browserBlockedAdsCount++
                         }
@@ -483,7 +493,7 @@ class BrowserWebViewHolder {
             }
         }
 
-        val container = SmartWebViewContainer(context, this).apply {
+        val container = SmartWebViewContainer(activityContext, this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -493,7 +503,7 @@ class BrowserWebViewHolder {
 
         webView = wv
         containerView = container
-        syncDocumentStartScripts(context, vm)
+        syncDocumentStartScripts(activityContext, vm)
         wv.loadUrl(vm.browserCurrentUrl)
         return container
     }
@@ -510,7 +520,9 @@ class BrowserWebViewHolder {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Boolean = true) {
+    val p = AppTheme.palette
     val context = LocalContext.current
+    val activityContext = LocalView.current.context
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
@@ -525,12 +537,15 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
     var pendingInstallScriptMeta by remember { mutableStateOf<UserscriptItem?>(null) }
     var pendingInstallSourceUrl by remember { mutableStateOf("") }
 
-    // Wire intercept callbacks
+    SideEffect {
+        holder.allowTabSwipe = vm.browserTabSwipeEnabled
+    }
+
     DisposableEffect(holder) {
         holder.onInterceptMagnet = { mag -> interceptedMagnet = mag }
         holder.onInterceptUserscriptUrl = { scriptUrl ->
             scope.launch {
-                vm.emitToast("⏳ Memeriksa Userscript…")
+                vm.emitToast(vm.str(R.string.toast_checking_script))
                 try {
                     val code = HttpClient.getString(scriptUrl, timeoutSec = 25L)
                     if (code.isNotBlank()) {
@@ -539,14 +554,13 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                         pendingInstallScriptMeta = UserscriptManager.parseMetadata(code, scriptUrl)
                     }
                 } catch (e: Exception) {
-                    vm.emitToast("❌ Gagal mengambil .user.js: ${e.message}")
+                    vm.emitToast(vm.str(R.string.toast_download_failed, e.message ?: "Error"))
                 }
             }
         }
         onDispose {}
     }
 
-    // Listen to Android system clipboard changes only while BrowserScreen is the active tab
     DisposableEffect(context, isActive) {
         if (!isActive) {
             return@DisposableEffect onDispose {}
@@ -568,9 +582,8 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
         }
     }
 
-    // Keep DocumentStart scripts synced whenever userscripts or ad shield toggle changes
     LaunchedEffect(vm.userscriptRevision, vm.browserAdShieldEnabled) {
-        holder.syncDocumentStartScripts(context, vm)
+        holder.syncDocumentStartScripts(activityContext, vm)
     }
 
     BackHandler(enabled = isActive && vm.browserCanGoBack) {
@@ -637,7 +650,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     }
                 }
             } catch (e: Exception) {
-                vm.emitToast("❌ Gagal membaca file script: ${e.message}")
+                vm.emitToast(vm.str(R.string.toast_read_file_failed, e.message ?: "Error"))
             }
         }
     }
@@ -645,7 +658,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Compact Address & Toolbar
-            Surface(color = Color(0xFF1E293B)) {
+            Surface(color = p.barSurface) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
@@ -659,20 +672,20 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             enabled = vm.browserCanGoBack,
                             modifier = Modifier.size(34.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", modifier = Modifier.size(19.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back), modifier = Modifier.size(19.dp))
                         }
 
                         OutlinedTextField(
                             value = addressInput,
                             onValueChange = { addressInput = it },
                             singleLine = true,
-                            placeholder = { Text("Cari film di Google atau ketik URL…", fontSize = 12.sp) },
+                            placeholder = { Text(stringResource(R.string.browser_url_placeholder), fontSize = 12.sp) },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                             keyboardActions = KeyboardActions(onGo = { navigateInput(addressInput) }),
                             trailingIcon = {
                                 if (addressInput.isNotEmpty()) {
                                     IconButton(onClick = { addressInput = "" }, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Hapus", modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.cd_clear), modifier = Modifier.size(16.dp))
                                     }
                                 }
                             },
@@ -692,13 +705,26 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                         ) {
                             Icon(
                                 if (vm.browserIsLoading) Icons.Default.Close else Icons.Default.Refresh,
-                                contentDescription = "Segarkan",
-                                modifier = Modifier.size(19.dp)
+                                contentDescription = stringResource(R.string.cd_refresh),
+                                modifier = Modifier.size(19.dp),
+                                tint = p.textPrimary
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { vm.showSettingsDialog = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.cd_settings),
+                                modifier = Modifier.size(19.dp),
+                                tint = p.textPrimary
                             )
                         }
                     }
 
-                    // Second compact action strip: Forward, 1-Click Detect, Bookmarks, Tampermonkey, AdShield
+                    // Second compact action strip
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -713,7 +739,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                 modifier = Modifier.clickable { runOneClickPageDetector() }
                             ) {
                                 Text(
-                                    "🎯 Deteksi Judul/Kode",
+                                    stringResource(R.string.browser_btn_detect),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
@@ -722,15 +748,16 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             }
 
                             Surface(
-                                color = Color(0xFF0F172A),
+                                color = p.subCardSurface,
                                 shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, p.borderColor),
                                 modifier = Modifier.clickable { showBookmarksDialog = true }
                             ) {
                                 Text(
-                                    "⭐ Bookmark",
+                                    stringResource(R.string.browser_btn_bookmark),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFFBBF24),
+                                    color = p.accentAmber,
                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                                 )
                             }
@@ -739,21 +766,22 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             val activeCount = vm.activePageScriptNames.size
                             Surface(
-                                color = if (activeCount > 0) Color(0xFF4C1D95) else Color(0xFF0F172A),
+                                color = if (activeCount > 0) Color(0xFF4C1D95) else p.subCardSurface,
                                 shape = RoundedCornerShape(8.dp),
+                                border = if (activeCount > 0) null else BorderStroke(1.dp, p.borderColor),
                                 modifier = Modifier.clickable { showUserscriptsDialog = true }
                             ) {
                                 Text(
-                                    "🧩 Script" + (if (activeCount > 0) " ($activeCount)" else ""),
+                                    stringResource(R.string.browser_btn_script) + (if (activeCount > 0) " ($activeCount)" else ""),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (activeCount > 0) Color(0xFFE9D5FF) else Color(0xFFCBD5E1),
+                                    color = if (activeCount > 0) Color(0xFFE9D5FF) else p.textPrimary,
                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                                 )
                             }
 
                             Surface(
-                                color = if (vm.browserAdShieldEnabled) Color(0xFF064E3B) else Color(0xFF334155),
+                                color = if (vm.browserAdShieldEnabled) Color(0xFF064E3B) else p.chipBg,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.clickable {
                                     vm.toggleBrowserAdShield(!vm.browserAdShieldEnabled)
@@ -764,7 +792,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                     if (vm.browserAdShieldEnabled) "🛡️ ${vm.browserBlockedAdsCount}" else "🛡️ OFF",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (vm.browserAdShieldEnabled) Color(0xFF6EE7B7) else Color(0xFF94A3B8),
+                                    color = if (vm.browserAdShieldEnabled) Color(0xFF6EE7B7) else p.textMuted,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 )
                             }
@@ -777,9 +805,11 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(2.dp),
-                            color = Color(0xFF38BDF8),
+                            color = p.accentBlue,
                             trackColor = Color.Transparent
                         )
+                    } else {
+                        HorizontalDivider(color = p.borderColor, thickness = 1.dp)
                     }
                 }
             }
@@ -789,7 +819,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                factory = { ctx -> holder.getOrCreateContainer(ctx, vm) }
+                factory = { holder.getOrCreateContainer(activityContext, vm) }
             )
         }
 
@@ -798,8 +828,9 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
         if (selText.isNotEmpty()) {
             val extractedCode = remember(selText) { Formatters.extractVideoCode(selText) }
             Surface(
-                color = Color(0xFF0F172A).copy(alpha = 0.97f),
+                color = p.cardSurface.copy(alpha = 0.98f),
                 shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, p.borderColor),
                 tonalElevation = 8.dp,
                 shadowElevation = 12.dp,
                 modifier = Modifier
@@ -818,16 +849,16 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Teks dipilih / disalin:",
+                                stringResource(R.string.browser_selected_label),
                                 fontSize = 10.5.sp,
-                                color = Color(0xFF38BDF8),
+                                color = p.accentBlue,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 selText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = p.textPrimary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -836,7 +867,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             onClick = { vm.browserSelectedQuery = "" },
                             modifier = Modifier.size(28.dp)
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textMuted, modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -849,7 +880,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text("🧲 Cari di TorrentHub", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.browser_btn_search_torrent), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
 
                         if (extractedCode.isNotBlank() && !extractedCode.equals(selText, ignoreCase = true)) {
@@ -858,7 +889,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("🧲 Cari Kode ($extractedCode)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.browser_btn_search_code, extractedCode), fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
 
@@ -866,7 +897,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             onClick = { vm.searchSubtitleFromBrowser(extractedCode.ifBlank { selText }) },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
-                            Text("💬 Cari Subtitle", fontSize = 11.5.sp)
+                            Text(stringResource(R.string.browser_btn_search_sub), fontSize = 11.5.sp)
                         }
                     }
                 }
@@ -877,24 +908,24 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
     // 1-Click Detect Code / Title Dialog
     if (showDetectDialog) {
         Dialog(onDismissRequest = { showDetectDialog = false }) {
-            Surface(color = Color(0xFF0F172A), shape = RoundedCornerShape(14.dp)) {
+            Surface(color = p.barSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, p.borderColor)) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("🎯 Judul / Kode Terdeteksi di Halaman", fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                        Text(stringResource(R.string.browser_detect_title), fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = p.textPrimary, modifier = Modifier.weight(1f))
                         IconButton(onClick = { showDetectDialog = false }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                         }
                     }
 
                     if (detectedCandidates.isEmpty()) {
                         Text(
-                            "Belum ditemukan kode/judul spesifik di halaman ini. Anda tetap bisa memblok/menyalin teks apa saja di halaman.",
+                            stringResource(R.string.browser_detect_empty),
                             fontSize = 12.sp,
-                            color = Color(0xFF94A3B8)
+                            color = p.textMuted
                         )
                     } else {
                         LazyColumn(
@@ -902,9 +933,9 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(detectedCandidates) { cand ->
-                                Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(10.dp)) {
+                                Surface(color = p.cardSurface, shape = RoundedCornerShape(10.dp), border = p.cardBorder) {
                                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(cand, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White)
+                                        Text(cand, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = p.textPrimary)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Button(
                                                 onClick = {
@@ -914,7 +945,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                             ) {
-                                                Text("🧲 Cari Torrent", fontSize = 11.5.sp)
+                                                Text(stringResource(R.string.browser_btn_search_torrent_short), fontSize = 11.5.sp, color = Color.White)
                                             }
                                             OutlinedButton(
                                                 onClick = {
@@ -923,7 +954,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                             ) {
-                                                Text("💬 Cari Subtitle", fontSize = 11.5.sp)
+                                                Text(stringResource(R.string.browser_btn_search_sub), fontSize = 11.5.sp)
                                             }
                                         }
                                     }
@@ -939,16 +970,16 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
     // Bookmarks Dialog
     if (showBookmarksDialog) {
         Dialog(onDismissRequest = { showBookmarksDialog = false }) {
-            Surface(color = Color(0xFF0F172A), shape = RoundedCornerShape(14.dp)) {
+            Surface(color = p.barSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, p.borderColor)) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("⭐ Bookmark Situs Favorit", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(stringResource(R.string.browser_bookmarks_title), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = p.textPrimary)
                         IconButton(onClick = { showBookmarksDialog = false }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                         }
                     }
 
@@ -963,14 +994,14 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("⭐ Simpan Halaman Ini", fontSize = 12.sp)
+                            Text(stringResource(R.string.browser_btn_save_page), fontSize = 12.sp, color = Color.White)
                         }
                         if (vm.browserCanGoForward) {
                             OutlinedButton(onClick = {
                                 holder.webView?.goForward()
                                 showBookmarksDialog = false
                             }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Maju", modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.cd_forward), modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -981,8 +1012,9 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     ) {
                         items(vm.browserBookmarks, key = { it.url }) { bm ->
                             Surface(
-                                color = Color(0xFF1E293B),
+                                color = p.cardSurface,
                                 shape = RoundedCornerShape(8.dp),
+                                border = p.cardBorder,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
@@ -995,14 +1027,14 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(bm.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(bm.url, fontSize = 11.sp, color = Color(0xFF94A3B8), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(bm.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = p.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(bm.url, fontSize = 11.sp, color = p.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     IconButton(
                                         onClick = { vm.removeBrowserBookmark(bm.url) },
                                         modifier = Modifier.size(28.dp)
                                     ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = Color(0xFFF87171), modifier = Modifier.size(17.dp))
+                                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_delete), tint = p.accentRed, modifier = Modifier.size(17.dp))
                                     }
                                 }
                             }
@@ -1030,7 +1062,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
         )
     }
 
-    // Auto-Intercepted .user.js Install Confirmation Dialog (GreasyFork / GitHub Raw)
+    // Auto-Intercepted .user.js Install Confirmation Dialog
     if (pendingInstallScriptMeta != null && pendingInstallScriptCode != null) {
         val meta = pendingInstallScriptMeta!!
         AlertDialog(
@@ -1038,14 +1070,14 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                 pendingInstallScriptMeta = null
                 pendingInstallScriptCode = null
             },
-            title = { Text("🧩 Pasang Userscript?", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.browser_install_script_title), fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("${meta.name} (v${meta.version})", fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                    Text("${meta.name} (v${meta.version})", fontWeight = FontWeight.Bold, color = p.accentBlue)
                     if (meta.description.isNotBlank()) {
                         Text(meta.description, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
-                    Text("Target: ${meta.matches.take(3).joinToString(", ")}", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                    Text(stringResource(R.string.browser_install_script_target, meta.matches.take(3).joinToString(", ")), fontSize = 11.sp, color = p.textMuted)
                 }
             },
             confirmButton = {
@@ -1060,7 +1092,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                 ) {
-                    Text("Pasang Sekarang")
+                    Text(stringResource(R.string.browser_btn_install_now), color = Color.White)
                 }
             },
             dismissButton = {
@@ -1068,7 +1100,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     pendingInstallScriptMeta = null
                     pendingInstallScriptCode = null
                 }) {
-                    Text("Batal")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -1079,7 +1111,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
         val mag = interceptedMagnet!!
         AlertDialog(
             onDismissRequest = { interceptedMagnet = null },
-            title = { Text("🧲 Tautan Magnet Terdeteksi", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.browser_magnet_title), fontWeight = FontWeight.Bold) },
             text = {
                 Text(mag, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, maxLines = 4, overflow = TextOverflow.Ellipsis)
             },
@@ -1092,18 +1124,18 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
                     ) {
-                        Text("☁️ Ke PikPak", fontSize = 12.sp)
+                        Text(stringResource(R.string.browser_btn_to_pikpak), fontSize = 12.sp, color = Color.White)
                     }
                     Button(
                         onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cm.setPrimaryClip(ClipData.newPlainText("Magnet", mag))
                             interceptedMagnet = null
-                            vm.emitToast("📋 Tautan magnet disalin!")
+                            vm.emitToast(vm.str(R.string.toast_link_copied, mag.take(40)))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("📋 Salin", fontSize = 12.sp)
+                        Text("📋 ${stringResource(R.string.common_copy)}", fontSize = 12.sp, color = Color.White)
                     }
                 }
             },
@@ -1111,12 +1143,15 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                 TextButton(onClick = {
                     interceptedMagnet = null
                     try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(mag)))
+                        val extIntent = Intent(Intent.ACTION_VIEW, Uri.parse(mag)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(extIntent)
                     } catch (_: Exception) {
-                        vm.emitToast("Tidak ada aplikasi torrent eksternal di HP.")
+                        vm.emitToast(vm.str(R.string.toast_no_torrent_app))
                     }
                 }) {
-                    Text("Aplikasi Luar")
+                    Text(stringResource(R.string.browser_btn_external_app))
                 }
             }
         )
@@ -1132,6 +1167,7 @@ private fun UserscriptManagerDialog(
     onInvokeMenuCmd: (String) -> Unit,
     onReloadWebView: () -> Unit
 ) {
+    val p = AppTheme.palette
     var showUrlInput by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf("") }
     var showPasteEditor by remember { mutableStateOf(false) }
@@ -1142,8 +1178,9 @@ private fun UserscriptManagerDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = Color(0xFF0F172A),
+            color = p.barSurface,
             shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .fillMaxHeight(0.88f)
@@ -1155,15 +1192,15 @@ private fun UserscriptManagerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("🧩 Tampermonkey / Userscript Engine", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                        Text(stringResource(R.string.userscript_title), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = p.textPrimary)
                         Text(
-                            "Mendukung GM_xmlhttpRequest (DoH), GM_getValue/setValue, Menu Command & GreasyFork",
+                            stringResource(R.string.userscript_subtitle),
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            color = p.textMuted
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                     }
                 }
 
@@ -1176,19 +1213,19 @@ private fun UserscriptManagerDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text("📂 Import .user.js HP", fontSize = 11.5.sp)
+                        Text(stringResource(R.string.userscript_btn_import), fontSize = 11.5.sp, color = Color.White)
                     }
                     OutlinedButton(
                         onClick = { showUrlInput = !showUrlInput; showPasteEditor = false },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text("🌐 Dari URL", fontSize = 11.5.sp)
+                        Text(stringResource(R.string.userscript_btn_from_url), fontSize = 11.5.sp)
                     }
                     OutlinedButton(
                         onClick = { showPasteEditor = !showPasteEditor; showUrlInput = false },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text("✍️ Tempel Kode", fontSize = 11.5.sp)
+                        Text(stringResource(R.string.userscript_btn_paste), fontSize = 11.5.sp)
                     }
                 }
 
@@ -1212,7 +1249,7 @@ private fun UserscriptManagerDialog(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                         ) {
-                            Text("Pasang", fontSize = 12.sp)
+                            Text(stringResource(R.string.userscript_btn_install), fontSize = 12.sp, color = Color.White)
                         }
                     }
                 }
@@ -1236,7 +1273,7 @@ private fun UserscriptManagerDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
-                        Text("✅ Simpan & Pasang Script")
+                        Text(stringResource(R.string.userscript_btn_save_install), color = Color.White)
                     }
                 }
 
@@ -1244,20 +1281,20 @@ private fun UserscriptManagerDialog(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Registered GM_registerMenuCommand items on current page
                     if (vm.activePageMenuCommands.isNotEmpty()) {
                         item {
                             Text(
-                                "⚡ Menu Perintah Halaman Ini (${vm.activePageMenuCommands.size})",
+                                stringResource(R.string.userscript_menu_cmds, vm.activePageMenuCommands.size),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF38BDF8)
+                                color = p.accentBlue
                             )
                         }
                         items(vm.activePageMenuCommands, key = { it.cmdId }) { cmd ->
                             Surface(
-                                color = Color(0xFF1E293B),
+                                color = p.cardSurface,
                                 shape = RoundedCornerShape(8.dp),
+                                border = p.cardBorder,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onInvokeMenuCmd(cmd.cmdId) }
@@ -1268,10 +1305,10 @@ private fun UserscriptManagerDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(cmd.caption, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                        Text(cmd.scriptName, fontSize = 10.5.sp, color = Color(0xFF94A3B8))
+                                        Text(cmd.caption, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = p.textPrimary)
+                                        Text(cmd.scriptName, fontSize = 10.5.sp, color = p.textMuted)
                                     }
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF4ADE80))
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = p.accentGreen)
                                 }
                             }
                         }
@@ -1279,20 +1316,20 @@ private fun UserscriptManagerDialog(
 
                     item {
                         Text(
-                            "📦 Daftar Script Terpasang (${vm.installedUserscripts.size})",
+                            stringResource(R.string.userscript_installed_header, vm.installedUserscripts.size),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFE2E8F0)
+                            color = p.textPrimary
                         )
                     }
 
                     if (vm.installedUserscripts.isEmpty()) {
                         item {
-                            Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(10.dp)) {
+                            Surface(color = p.cardSurface, shape = RoundedCornerShape(10.dp), border = p.cardBorder) {
                                 Text(
-                                    "Belum ada script terpasang.\n\nTips: Anda bisa mengimpor file .user.js dari HP, atau buka Bookmark 'GreasyFork (.user.js)' di Browser lalu klik tombol Install pada script mana pun!",
+                                    stringResource(R.string.userscript_empty_tips),
                                     fontSize = 12.sp,
-                                    color = Color(0xFF94A3B8),
+                                    color = p.textMuted,
                                     modifier = Modifier.padding(12.dp)
                                 )
                             }
@@ -1300,7 +1337,7 @@ private fun UserscriptManagerDialog(
                     } else {
                         items(vm.installedUserscripts, key = { it.id }) { sc ->
                             val isActiveHere = sc.name in vm.activePageScriptNames
-                            Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(10.dp)) {
+                            Surface(color = p.cardSurface, shape = RoundedCornerShape(10.dp), border = p.cardBorder) {
                                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1310,13 +1347,13 @@ private fun UserscriptManagerDialog(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 if (isActiveHere) {
-                                                    Box(Modifier.size(8.dp).background(Color(0xFF4ADE80), CircleShape))
+                                                    Box(Modifier.size(8.dp).background(p.accentGreen, CircleShape))
                                                 }
                                                 Text(
                                                     "${sc.name} (v${sc.version})",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.sp,
-                                                    color = Color.White,
+                                                    color = p.textPrimary,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -1324,7 +1361,7 @@ private fun UserscriptManagerDialog(
                                             Text(
                                                 "Run-at: ${sc.runAt} · ${Formatters.formatBytes(sc.codeSize.toLong())}",
                                                 fontSize = 10.5.sp,
-                                                color = Color(0xFF94A3B8)
+                                                color = p.textMuted
                                             )
                                         }
                                         Switch(
@@ -1336,7 +1373,7 @@ private fun UserscriptManagerDialog(
                                         )
                                     }
                                     if (sc.description.isNotBlank()) {
-                                        Text(sc.description, fontSize = 11.5.sp, color = Color(0xFFCBD5E1), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(sc.description, fontSize = 11.5.sp, color = p.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1346,7 +1383,7 @@ private fun UserscriptManagerDialog(
                                         Text(
                                             sc.matches.take(2).joinToString(", "),
                                             fontSize = 10.5.sp,
-                                            color = Color(0xFF64748B),
+                                            color = p.textMuted,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -1358,7 +1395,7 @@ private fun UserscriptManagerDialog(
                                             },
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                         ) {
-                                            Text("Hapus", fontSize = 11.5.sp, color = Color(0xFFF87171))
+                                            Text(stringResource(R.string.common_delete), fontSize = 11.5.sp, color = p.accentRed)
                                         }
                                     }
                                 }

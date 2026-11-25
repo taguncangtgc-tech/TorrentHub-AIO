@@ -7,9 +7,11 @@ import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.torrenthub.aio.R
+import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.GeminiEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,11 +44,13 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GeminiScreen(vm: AppViewModel) {
+    val p = AppTheme.palette
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var showAdvanced by remember { mutableStateOf(false) }
     var modelDropdownOpen by remember { mutableStateOf(false) }
+    var targetLangDropdownOpen by remember { mutableStateOf(false) }
     var modeDropdownOpen by remember { mutableStateOf(false) }
     var nameModeDropdownOpen by remember { mutableStateOf(false) }
 
@@ -94,7 +101,7 @@ fun GeminiScreen(vm: AppViewModel) {
                         }
                     }
                 } catch (e: Exception) {
-                    vm.emitToast("❌ Gagal membaca file: ${e.message}")
+                    vm.emitToast(vm.str(R.string.toast_read_file_failed, e.message ?: "Error"))
                 }
             }
         }
@@ -110,9 +117,9 @@ fun GeminiScreen(vm: AppViewModel) {
                     context.contentResolver.openOutputStream(uri)?.use { out ->
                         out.write(txt.toByteArray(Charsets.UTF_8))
                     }
-                    vm.emitToast("✅ Hasil terjemahan berhasil disimpan!")
+                    vm.emitToast(vm.str(R.string.toast_translation_saved))
                 } catch (e: Exception) {
-                    vm.emitToast("❌ Gagal menyimpan: ${e.message}")
+                    vm.emitToast(vm.str(R.string.toast_save_failed, e.message ?: "Error"))
                 }
             }
         }
@@ -122,6 +129,10 @@ fun GeminiScreen(vm: AppViewModel) {
     val freeCount = parsedKeys.count { !GeminiEngine.isOpenRouterKey(it) }
     val orCount = parsedKeys.count { GeminiEngine.isOpenRouterKey(it) }
 
+    val targetLangDisplay = languageDisplayLabel(vm.subtitleTargetLang)
+    val statusDisplay = vm.geminiStatusText ?: stringResource(R.string.gemini_status_ready)
+    val previewLogDisplay = vm.geminiPreviewLog ?: stringResource(R.string.gemini_preview_idle)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -129,14 +140,14 @@ fun GeminiScreen(vm: AppViewModel) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Card 1: API Keys & Model
-        Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)) {
+        // Card 1: API Keys, Model & Target Language
+        Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "✨ Gemini Subtitle Translator Hybrid",
+                    stringResource(R.string.gemini_card_title),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
-                    color = Color(0xFFF8FAFC)
+                    color = p.textPrimary
                 )
 
                 OutlinedTextField(
@@ -148,8 +159,8 @@ fun GeminiScreen(vm: AppViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 4,
-                    label = { Text("API Keys (Google AI Studio / OpenRouter)") },
-                    placeholder = { Text("Tempel AIzaSy... atau sk-or-v1-... (pisahkan baris baru)", fontSize = 12.sp) },
+                    label = { Text(stringResource(R.string.gemini_keys_label)) },
+                    placeholder = { Text(stringResource(R.string.gemini_keys_placeholder), fontSize = 12.sp) },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                 )
 
@@ -159,22 +170,23 @@ fun GeminiScreen(vm: AppViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Terdeteksi: $freeCount Google + $orCount OpenRouter",
+                        stringResource(R.string.gemini_keys_detected, freeCount, orCount),
                         fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
+                        color = p.textMuted,
+                        modifier = Modifier.weight(1f)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(
                             onClick = { vm.testGeminiKeys() },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Text("Tes Koneksi", fontSize = 11.5.sp)
+                            Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
                         }
                         OutlinedButton(
                             onClick = { vm.refreshGeminiModels() },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Text("Cek Model", fontSize = 11.5.sp)
+                            Text(stringResource(R.string.gemini_btn_check_models), fontSize = 11.5.sp)
                         }
                     }
                 }
@@ -188,7 +200,7 @@ fun GeminiScreen(vm: AppViewModel) {
                         value = vm.geminiModel,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Model AI (Auto-Fallback jika 503/Sibuk)") },
+                        label = { Text(stringResource(R.string.gemini_model_label)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownOpen) },
                         modifier = Modifier
                             .menuAnchor()
@@ -212,17 +224,52 @@ fun GeminiScreen(vm: AppViewModel) {
                     }
                 }
 
+                // Target Language Selector (Synced with Settings & Subtitle Tab)
+                ExposedDropdownMenuBox(
+                    expanded = targetLangDropdownOpen,
+                    onExpandedChange = { targetLangDropdownOpen = it }
+                ) {
+                    OutlinedTextField(
+                        value = "${vm.subtitleTargetLang.flag} $targetLangDisplay",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.gemini_target_lang_label)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetLangDropdownOpen) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = targetLangDropdownOpen,
+                        onDismissRequest = { targetLangDropdownOpen = false }
+                    ) {
+                        AppLanguage.entries.forEach { lang ->
+                            DropdownMenuItem(
+                                text = { Text("${lang.flag} ${languageDisplayLabel(lang)}") },
+                                onClick = {
+                                    vm.updateSubtitleTargetLang(lang)
+                                    targetLangDropdownOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+
                 // Task Mode Selector
                 ExposedDropdownMenuBox(
                     expanded = modeDropdownOpen,
                     onExpandedChange = { modeDropdownOpen = it }
                 ) {
                     OutlinedTextField(
-                        value = if (vm.geminiTaskMode == "polish") "Perbaiki SRT Bahasa Indonesia (MTL)"
-                        else "Terjemahkan ke Bahasa Indonesia",
+                        value = if (vm.geminiTaskMode == "polish") {
+                            stringResource(R.string.gemini_mode_polish_lang, targetLangDisplay)
+                        } else {
+                            stringResource(R.string.gemini_mode_translate_to, targetLangDisplay)
+                        },
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Mode Tugas") },
+                        label = { Text(stringResource(R.string.gemini_task_mode_label)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modeDropdownOpen) },
                         modifier = Modifier
                             .menuAnchor()
@@ -234,7 +281,7 @@ fun GeminiScreen(vm: AppViewModel) {
                         onDismissRequest = { modeDropdownOpen = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Terjemahkan ke Bahasa Indonesia") },
+                            text = { Text(stringResource(R.string.gemini_mode_translate_to, targetLangDisplay)) },
                             onClick = {
                                 vm.geminiTaskMode = "translate"
                                 vm.saveGeminiSettings()
@@ -242,7 +289,7 @@ fun GeminiScreen(vm: AppViewModel) {
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Perbaiki SRT Bahasa Indonesia (Hasil Mesin)") },
+                            text = { Text(stringResource(R.string.gemini_mode_polish_lang, targetLangDisplay)) },
                             onClick = {
                                 vm.geminiTaskMode = "polish"
                                 vm.saveGeminiSettings()
@@ -254,8 +301,9 @@ fun GeminiScreen(vm: AppViewModel) {
 
                 // Collapsible Advanced Options
                 Surface(
-                    color = Color(0xFF0F172A),
+                    color = p.subCardSurface,
                     shape = RoundedCornerShape(8.dp),
+                    border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showAdvanced = !showAdvanced }
@@ -265,8 +313,17 @@ fun GeminiScreen(vm: AppViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Pengaturan Prompt, Glosarium & Format Output", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-                        Icon(if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                        Text(
+                            stringResource(R.string.gemini_advanced_header),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = p.textPrimary
+                        )
+                        Icon(
+                            if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = p.textPrimary
+                        )
                     }
                 }
 
@@ -277,16 +334,16 @@ fun GeminiScreen(vm: AppViewModel) {
                             onExpandedChange = { nameModeDropdownOpen = it }
                         ) {
                             val nameModeLabel = when (vm.geminiNameMode) {
-                                "code-upper" -> "Kode Huruf Besar (JUL-334.srt)"
-                                "upper-full" -> "Nama Penuh Huruf Besar"
-                                ".id" -> "Nama Asli + .id.srt"
-                                else -> "Nama Asli Apa Adanya"
+                                "code-upper" -> stringResource(R.string.gemini_name_code_upper)
+                                "upper-full" -> stringResource(R.string.gemini_name_upper_full)
+                                ".id", ".lang" -> stringResource(R.string.gemini_name_lang_suffix, vm.subtitleTargetLang.code)
+                                else -> stringResource(R.string.gemini_name_orig)
                             }
                             OutlinedTextField(
                                 value = nameModeLabel,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Format Nama Output") },
+                                label = { Text(stringResource(R.string.gemini_name_mode_label)) },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = nameModeDropdownOpen) },
                                 modifier = Modifier.menuAnchor().fillMaxWidth(),
                                 textStyle = LocalTextStyle.current.copy(fontSize = 12.5.sp)
@@ -296,10 +353,10 @@ fun GeminiScreen(vm: AppViewModel) {
                                 onDismissRequest = { nameModeDropdownOpen = false }
                             ) {
                                 listOf(
-                                    "code-upper" to "Kode Huruf Besar (JUL-334.srt)",
-                                    "upper-full" to "Nama Penuh Huruf Besar",
-                                    "" to "Nama Asli Apa Adanya",
-                                    ".id" to "Nama Asli + .id.srt"
+                                    "code-upper" to stringResource(R.string.gemini_name_code_upper),
+                                    "upper-full" to stringResource(R.string.gemini_name_upper_full),
+                                    "" to stringResource(R.string.gemini_name_orig),
+                                    ".id" to stringResource(R.string.gemini_name_lang_suffix, vm.subtitleTargetLang.code)
                                 ).forEach { (valKey, labelTxt) ->
                                     DropdownMenuItem(
                                         text = { Text(labelTxt) },
@@ -323,7 +380,12 @@ fun GeminiScreen(vm: AppViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 2,
                             maxLines = 4,
-                            label = { Text("Catatan Gaya Bahasa (${if (vm.geminiTaskMode == "polish") "Perbaikan" else "Terjemah"})") },
+                            label = {
+                                Text(
+                                    if (vm.geminiTaskMode == "polish") stringResource(R.string.gemini_notes_label_polish)
+                                    else stringResource(R.string.gemini_notes_label_translate)
+                                )
+                            },
                             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
                         )
 
@@ -336,26 +398,26 @@ fun GeminiScreen(vm: AppViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 2,
                             maxLines = 3,
-                            label = { Text("Kamus Istilah / Glosarium (Sensei = Pak Guru)") },
+                            label = { Text(stringResource(R.string.gemini_glossary_label)) },
                             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
                         )
 
-                        ToggleOptionRow("Auto-deteksi bahasa subtitle", vm.geminiAutoDetect) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_autodetect), vm.geminiAutoDetect) {
                             vm.geminiAutoDetect = it; vm.saveGeminiSettings()
                         }
-                        ToggleOptionRow("Longgarkan sensor (BLOCK_NONE + Fallback)", vm.geminiRelaxSafety) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_safety), vm.geminiRelaxSafety) {
                             vm.geminiRelaxSafety = it; vm.saveGeminiSettings()
                         }
-                        ToggleOptionRow("Proses semua baris teks (non-CJK termasuk Inggris)", vm.geminiIncludeAllLines) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_all_lines), vm.geminiIncludeAllLines) {
                             vm.geminiIncludeAllLines = it; vm.saveGeminiSettings()
                         }
-                        ToggleOptionRow("Konteks antar-batch (Sliding Context)", vm.geminiSlidingContext) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_sliding_ctx), vm.geminiSlidingContext) {
                             vm.geminiSlidingContext = it; vm.saveGeminiSettings()
                         }
-                        ToggleOptionRow("Bersihkan iklan SRT & rapikan overlap", vm.geminiCleanAds) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_clean_ads), vm.geminiCleanAds) {
                             vm.geminiCleanAds = it; vm.rebuildGeminiOutputs()
                         }
-                        ToggleOptionRow("Output Bilingual (ID + Asli)", vm.geminiBilingual) {
+                        ToggleOptionRow(stringResource(R.string.gemini_opt_bilingual), vm.geminiBilingual) {
                             vm.geminiBilingual = it; vm.rebuildGeminiOutputs()
                         }
 
@@ -366,7 +428,7 @@ fun GeminiScreen(vm: AppViewModel) {
                                 vm.rebuildGeminiOutputs()
                             },
                             singleLine = true,
-                            label = { Text("Geser Waktu / Time Shift (detik, mis: 1.5 atau -0.8)") },
+                            label = { Text(stringResource(R.string.gemini_timeshift_label)) },
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = LocalTextStyle.current.copy(fontSize = 12.5.sp)
                         )
@@ -376,7 +438,7 @@ fun GeminiScreen(vm: AppViewModel) {
         }
 
         // Card 2: File Queue & Controls
-        Surface(color = Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)) {
+        Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -388,22 +450,23 @@ fun GeminiScreen(vm: AppViewModel) {
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                     ) {
-                        Text("📂 Pilih File SRT/ASS", fontSize = 12.5.sp)
+                        Text(stringResource(R.string.gemini_btn_pick_files), fontSize = 12.5.sp, color = Color.White)
                     }
                     if (vm.geminiJobs.isNotEmpty()) {
                         OutlinedButton(
                             onClick = { vm.clearGeminiJobs() },
                             enabled = !vm.isGeminiRunning
                         ) {
-                            Text("Kosongkan", fontSize = 12.sp)
+                            Text(stringResource(R.string.gemini_btn_clear_queue), fontSize = 12.sp)
                         }
                     }
                 }
 
                 // Auto-upload to PikPak Drive toggle
                 Surface(
-                    color = Color(0xFF0F172A),
+                    color = p.subCardSurface,
                     shape = RoundedCornerShape(8.dp),
+                    border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -419,16 +482,16 @@ fun GeminiScreen(vm: AppViewModel) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "☁️ Otomatis upload hasil SRT ke PikPak",
+                                stringResource(R.string.gemini_auto_upload_title),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFE2E8F0)
+                                color = p.textPrimary
                             )
                             Text(
-                                if (vm.pikpakCreds.isLoggedIn) "Folder tujuan: 📁 ${vm.pikpakCreds.targetFolderName}"
-                                else "Belum login PikPak (atur di tab PikPak)",
+                                if (vm.pikpakCreds.isLoggedIn) stringResource(R.string.gemini_auto_upload_folder, vm.pikpakCreds.targetFolderName)
+                                else stringResource(R.string.gemini_auto_upload_not_logged),
                                 fontSize = 10.5.sp,
-                                color = if (vm.pikpakCreds.isLoggedIn) Color(0xFF38BDF8) else Color(0xFF94A3B8)
+                                color = if (vm.pikpakCreds.isLoggedIn) p.accentBlue else p.textMuted
                             )
                         }
                         Switch(
@@ -452,7 +515,7 @@ fun GeminiScreen(vm: AppViewModel) {
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                     ) {
-                        Text("Tes 10 Baris", fontSize = 12.sp)
+                        Text(stringResource(R.string.gemini_btn_test_10), fontSize = 12.sp, color = Color.White)
                     }
                     Button(
                         onClick = { launchGeminiWithNotifCheck(limitLines = 0) },
@@ -462,9 +525,11 @@ fun GeminiScreen(vm: AppViewModel) {
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            if (vm.geminiTaskMode == "polish") "▶️ Perbaiki Semua" else "▶️ Terjemahkan",
+                            if (vm.geminiTaskMode == "polish") stringResource(R.string.gemini_btn_run_polish)
+                            else stringResource(R.string.gemini_btn_run_translate),
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
                     }
                     if (vm.isGeminiRunning) {
@@ -473,40 +538,44 @@ fun GeminiScreen(vm: AppViewModel) {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                         ) {
-                            Text("⏹️ Stop", fontSize = 12.sp)
+                            Text(stringResource(R.string.gemini_btn_stop), fontSize = 12.sp, color = Color.White)
                         }
                     }
                 }
 
                 Text(
-                    vm.geminiStatusText,
+                    statusDisplay,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF38BDF8)
+                    color = p.accentBlue
                 )
 
                 // Job Items
                 vm.geminiJobs.forEachIndexed { idx, job ->
-                    val outName = GeminiEngine.formatOutputFileName(job.fileName, vm.geminiNameMode)
+                    val outName = GeminiEngine.formatOutputFileName(job.fileName, vm.geminiNameMode, vm.subtitleTargetLang.code)
                     val isUploadingThis = vm.uploadingGeminiJobId == job.id
-                    Surface(color = Color(0xFF0F172A), shape = RoundedCornerShape(10.dp)) {
+                    Surface(
+                        color = p.subCardSurface,
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null
+                    ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 "#${idx + 1} ${job.fileName} → $outName",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = Color.White,
+                                color = p.textPrimary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Text(job.statusText, fontSize = 11.5.sp, color = Color(0xFFCBD5E1))
+                            Text(job.statusText, fontSize = 11.5.sp, color = p.textSecondary)
                             LinearProgressIndicator(
                                 progress = { (job.pct / 100f).coerceIn(0f, 1f) },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(6.dp),
-                                color = Color(0xFF14B8A6),
-                                trackColor = Color(0xFF334155)
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = p.chipBg
                             )
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -522,7 +591,7 @@ fun GeminiScreen(vm: AppViewModel) {
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Text("💾 Simpan HP", fontSize = 11.5.sp)
+                                    Text(stringResource(R.string.gemini_btn_save_phone), fontSize = 11.5.sp, color = Color.White)
                                 }
                                 Button(
                                     onClick = { vm.uploadGeminiJobToPikPak(job.id) },
@@ -534,11 +603,12 @@ fun GeminiScreen(vm: AppViewModel) {
                                 ) {
                                     Text(
                                         when {
-                                            isUploadingThis -> "⏳ Upload…"
-                                            job.uploadedToPikPak -> "☁️ Ter-upload ✓"
-                                            else -> "☁️ Upload PikPak"
+                                            isUploadingThis -> stringResource(R.string.gemini_btn_uploading)
+                                            job.uploadedToPikPak -> stringResource(R.string.gemini_btn_uploaded)
+                                            else -> stringResource(R.string.gemini_btn_upload_pikpak)
                                         },
-                                        fontSize = 11.5.sp
+                                        fontSize = 11.5.sp,
+                                        color = Color.White
                                     )
                                 }
                                 OutlinedButton(
@@ -549,11 +619,11 @@ fun GeminiScreen(vm: AppViewModel) {
                                     enabled = !job.resultContent.isNullOrBlank(),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Text("👁️ Lihat Hasil", fontSize = 11.5.sp)
+                                    Text(stringResource(R.string.gemini_btn_view_result), fontSize = 11.5.sp)
                                 }
                                 if (!vm.isGeminiRunning && (job.hasSavedProgress || job.pct > 0)) {
                                     TextButton(onClick = { vm.resetSingleGeminiJob(job.id) }) {
-                                        Text("Reset", fontSize = 11.5.sp, color = Color(0xFFF59E0B))
+                                        Text(stringResource(R.string.common_reset), fontSize = 11.5.sp, color = p.accentAmber)
                                     }
                                 }
                             }
@@ -564,12 +634,16 @@ fun GeminiScreen(vm: AppViewModel) {
         }
 
         // Card 3: Console / Preview Box
-        Surface(color = Color(0xFF020617), shape = RoundedCornerShape(10.dp)) {
+        Surface(
+            color = p.consoleSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null
+        ) {
             Text(
-                text = vm.geminiPreviewLog,
+                text = previewLogDisplay,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.5.sp,
-                color = Color(0xFFE2E8F0),
+                color = p.textPrimary,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp)
@@ -585,8 +659,9 @@ fun GeminiScreen(vm: AppViewModel) {
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                color = Color(0xFF0F172A),
+                color = p.barSurface,
                 shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, p.borderColor),
                 modifier = Modifier
                     .fillMaxWidth(0.96f)
                     .fillMaxHeight(0.88f)
@@ -595,23 +670,23 @@ fun GeminiScreen(vm: AppViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF1E293B))
+                            .background(p.cardSurface)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(previewJobTitle.orEmpty(), fontWeight = FontWeight.Bold)
-                            Text("${allResultLines.size} baris penuh", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                            Text(previewJobTitle.orEmpty(), fontWeight = FontWeight.Bold, color = p.textPrimary)
+                            Text(stringResource(R.string.gemini_lines_count, allResultLines.size), fontSize = 11.sp, color = p.accentBlue)
                         }
                         IconButton(onClick = { previewJobTitle = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
                         }
                     }
-                    androidx.compose.foundation.lazy.LazyColumn(
+                    LazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .background(Color(0xFF020617)),
+                            .background(p.consoleSurface),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         items(allResultLines.size) { idx ->
@@ -620,13 +695,13 @@ fun GeminiScreen(vm: AppViewModel) {
                                     text = "${(idx + 1).toString().padStart(padW, ' ')}. ",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp,
-                                    color = Color(0xFF64748B)
+                                    color = p.textMuted
                                 )
                                 Text(
                                     text = allResultLines[idx],
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.5.sp,
-                                    color = Color(0xFFE2E8F0),
+                                    color = p.textPrimary,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -640,6 +715,7 @@ fun GeminiScreen(vm: AppViewModel) {
 
 @Composable
 private fun ToggleOptionRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val p = AppTheme.palette
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -648,7 +724,7 @@ private fun ToggleOptionRow(label: String, checked: Boolean, onChange: (Boolean)
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 12.sp, color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
+        Text(label, fontSize = 12.sp, color = p.textPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }

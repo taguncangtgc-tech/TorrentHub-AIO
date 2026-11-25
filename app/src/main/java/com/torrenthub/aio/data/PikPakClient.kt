@@ -540,12 +540,38 @@ object PikPakClient {
 
     data class FileDirectLinks(
         val streamUrl: String,
-        val downloadUrl: String
+        val downloadUrl: String,
+        val updatedCreds: PikPakCredentials? = null
     )
 
     suspend fun fetchFileLinks(fileId: String, creds: PikPakCredentials): FileDirectLinks {
         val url = "${creds.apiOrigin}/drive/v1/files/${Formatters.urlEncode(fileId)}?usage=FETCH"
-        val raw = HttpClient.getString(url, headers = buildHeaders(creds))
+        var activeCreds = ensureCaptcha(creds, "GET:/drive/v1/files/{id}")
+        var refreshed = false
+        var captchaRetried = false
+
+        var raw = ""
+        while (true) {
+            try {
+                raw = HttpClient.getString(url, headers = buildHeaders(activeCreds))
+                break
+            } catch (e: HttpStatusException) {
+                if (e.code == 401 && !refreshed && activeCreds.refreshToken.isNotBlank()) {
+                    refreshed = true
+                    val next = refreshAccessToken(activeCreds)
+                    if (next != null) {
+                        activeCreds = next
+                        continue
+                    }
+                }
+                if (isCaptchaError(e.code, e.rawBody.ifBlank { e.message }) && !captchaRetried) {
+                    captchaRetried = true
+                    activeCreds = ensureCaptcha(activeCreds, "GET:/drive/v1/files/{id}", force = true)
+                    continue
+                }
+                throw e
+            }
+        }
         val root = JSONObject(raw)
 
         var downloadUrl = root.optString("web_content_link")
@@ -578,7 +604,319 @@ object PikPakClient {
         }
         if (streamUrl.isBlank()) streamUrl = downloadUrl
 
-        return FileDirectLinks(streamUrl = streamUrl, downloadUrl = downloadUrl.ifBlank { streamUrl })
+        return FileDirectLinks(
+            streamUrl = streamUrl,
+            downloadUrl = downloadUrl.ifBlank { streamUrl },
+            updatedCreds = if (activeCreds != creds) activeCreds else null
+        )
+    }
+
+    data class QuickStreamSubmitResult(
+        val ok: Boolean,
+        val taskId: String = "",
+        val fileId: String = "",
+        val phase: String = "",
+        val progress: Int = 0,
+        val taskName: String = "",
+        val errorMessage: String = "",
+        val updatedCreds: PikPakCredentials? = null
+    )
+
+    suspend fun addMagnetForQuickStream(
+        magnet: String,
+        creds: PikPakCredentials
+    ): QuickStreamSubmitResult {
+        val cleanMagnet = magnet.trim()
+        if (!creds.isLoggedIn || cleanMagnet.isBlank()) {
+            return QuickStreamSubmitResult(ok = false, errorMessage = "Invalid credentials or magnet")
+        }
+
+        var activeCreds = creds
+        var refreshedOnce = false
+        var captchaRetried = false
+        val endpoint = "${activeCreds.apiOrigin}/drive/v1/files"
+
+        while (true) {
+            activeCreds = ensureCaptcha(activeCreds, "POST:/drive/v1/files")
+            val payload = JSONObject()
+                .put("kind", "drive#file")
+                .put("name", "")
+                .put("upload_type", "UPLOAD_TYPE_URL")
+                .put("url", JSONObject().put("url", cleanMagnet))
+                .put("params", JSONObject().put("from", "file"))
+
+            if (activeCreds.targetFolderId.isNotBlank()) {
+                payload.put("parent_id", activeCreds.targetFolderId)
+            } else {
+                payload.put("folder_type", "DOWNLOAD")
+            }
+
+            val (code, body) = try {
+                HttpClient.postJson(endpoint, payload.toString(), headers = buildHeaders(activeCreds))
+            } catch (e: Exception) {
+                return QuickStreamSubmitResult(
+                    ok = false,
+                    errorMessage = e.message ?: "Network error",
+                    updatedCreds = if (activeCreds != creds) activeCreds else null
+                )
+            }
+
+            if (code in 200..299) {
+                val root = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                val taskObj = root.optJSONObject("task")
+                val fileObj = root.optJSONObject("file")
+                val taskId = taskObj?.optString("id").orEmpty()
+                val fileId = taskObj?.optString("file_id").orEmpty()
+                    .ifBlank { fileObj?.optString("id").orEmpty() }
+                val rawPhase = taskObj?.optString("phase").orEmpty()
+                    .ifBlank { fileObj?.optString("phase").orEmpty() }
+                val phase = rawPhase.removePrefix("PHASE_TYPE_").ifBlank {
+                    if (fileId.isNotBlank() && taskObj == null) "COMPLETE" else "RUNNING"
+                }
+                val defaultPct = if (phase == "COMPLETE") 100 else 0
+                val progress = taskObj?.optInt("progress", defaultPct) ?: defaultPct
+                val taskName = taskObj?.optString("name").orEmpty()
+                    .ifBlank { taskObj?.optString("file_name").orEmpty() }
+                    .ifBlank { fileObj?.optString("name").orEmpty() }
+                val errMsg = taskObj?.optString("message").orEmpty()
+
+                return QuickStreamSubmitResult(
+                    ok = true,
+                    taskId = taskId,
+                    fileId = fileId,
+                    phase = phase,
+                    progress = progress,
+                    taskName = taskName,
+                    errorMessage = errMsg,
+                    updatedCreds = if (activeCreds != creds) activeCreds else null
+                )
+            }
+
+            if (isCaptchaError(code, body) && !captchaRetried) {
+                captchaRetried = true
+                activeCreds = ensureCaptcha(activeCreds, "POST:/drive/v1/files", force = true)
+                continue
+            }
+
+            if (code == 401 && !refreshedOnce && activeCreds.refreshToken.isNotBlank()) {
+                refreshedOnce = true
+                val refreshed = refreshAccessToken(activeCreds)
+                if (refreshed != null) {
+                    activeCreds = refreshed
+                    continue
+                }
+            }
+
+            return QuickStreamSubmitResult(
+                ok = false,
+                errorMessage = HttpClient.buildErrorDetail(code, body),
+                updatedCreds = if (activeCreds != creds) activeCreds else null
+            )
+        }
+    }
+
+    private fun parseTaskJson(t: JSONObject): PikPakTaskInfo = PikPakTaskInfo(
+        id = t.optString("id"),
+        name = t.optString("name").ifBlank { t.optString("file_name", "Cloud Task") },
+        phase = t.optString("phase").removePrefix("PHASE_TYPE_"),
+        progress = t.optInt("progress", 0),
+        fileSize = t.optString("file_size").toLongOrNull() ?: t.optLong("file_size", 0L),
+        message = t.optString("message"),
+        fileId = t.optString("file_id")
+    )
+
+    suspend fun pollOfflineTask(
+        taskId: String,
+        taskNameHint: String,
+        creds: PikPakCredentials
+    ): Pair<PikPakTaskInfo?, PikPakCredentials?> {
+        var activeCreds = creds
+        if (taskId.isNotBlank()) {
+            val directUrl = "${activeCreds.apiOrigin}/drive/v1/tasks/${Formatters.urlEncode(taskId)}"
+            try {
+                val raw = try {
+                    HttpClient.getString(directUrl, headers = buildHeaders(activeCreds))
+                } catch (e: HttpStatusException) {
+                    if (e.code == 401 && activeCreds.refreshToken.isNotBlank()) {
+                        val refreshed = refreshAccessToken(activeCreds) ?: throw e
+                        activeCreds = refreshed
+                        HttpClient.getString(directUrl, headers = buildHeaders(activeCreds))
+                    } else throw e
+                }
+                val root = JSONObject(raw)
+                val taskJson = root.optJSONObject("task") ?: root
+                if (taskJson.optString("id").isNotBlank() || taskJson.optString("phase").isNotBlank()) {
+                    val info = parseTaskJson(taskJson)
+                    if (info.phase != "COMPLETE" || info.fileId.isNotBlank()) {
+                        return info to (if (activeCreds != creds) activeCreds else null)
+                    }
+                }
+            } catch (_: Exception) {
+                // Fall back to recent tasks query below
+            }
+        }
+
+        return try {
+            val filters = JSONObject()
+                .put("type", JSONObject().put("in", "offline"))
+                .put("phase", JSONObject().put("in", "PHASE_TYPE_RUNNING,PHASE_TYPE_PENDING,PHASE_TYPE_COMPLETE,PHASE_TYPE_ERROR"))
+                .toString()
+            val listUrl = "${activeCreds.apiOrigin}/drive/v1/tasks?type=offline&limit=30&filters=${Formatters.urlEncode(filters)}"
+            val raw = try {
+                HttpClient.getString(listUrl, headers = buildHeaders(activeCreds))
+            } catch (e: HttpStatusException) {
+                if (e.code == 401 && activeCreds.refreshToken.isNotBlank()) {
+                    val refreshed = refreshAccessToken(activeCreds) ?: throw e
+                    activeCreds = refreshed
+                    HttpClient.getString(listUrl, headers = buildHeaders(activeCreds))
+                } else throw e
+            }
+            val arr = JSONObject(raw).optJSONArray("tasks")
+            var matched: PikPakTaskInfo? = null
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i)?.let(::parseTaskJson) ?: continue
+                    if (taskId.isNotBlank() && item.id == taskId) {
+                        matched = item
+                        break
+                    }
+                    if (matched == null && taskNameHint.isNotBlank() && item.name.equals(taskNameHint, ignoreCase = true)) {
+                        matched = item
+                    }
+                }
+            }
+            matched to (if (activeCreds != creds) activeCreds else null)
+        } catch (_: Exception) {
+            null to (if (activeCreds != creds) activeCreds else null)
+        }
+    }
+
+    private suspend fun getDriveItemMetadata(fileId: String, creds: PikPakCredentials): PikPakDriveItem? {
+        if (fileId.isBlank()) return null
+        val url = "${creds.apiOrigin}/drive/v1/files/${Formatters.urlEncode(fileId)}"
+        val raw = try {
+            HttpClient.getString(url, headers = buildHeaders(creds))
+        } catch (e: HttpStatusException) {
+            if (e.code == 401 && creds.refreshToken.isNotBlank()) {
+                val refreshed = refreshAccessToken(creds) ?: return null
+                HttpClient.getString(url, headers = buildHeaders(refreshed))
+            } else return null
+        } catch (_: Exception) {
+            return null
+        }
+        val f = try { JSONObject(raw) } catch (_: Exception) { return null }
+        if (f.optString("id").isBlank()) return null
+        val medias = f.optJSONArray("medias")
+        val rawMime = f.optString("mime_type")
+        val effectiveMime = if (rawMime.isBlank() && medias != null && medias.length() > 0) "video/mp4" else rawMime
+        return PikPakDriveItem(
+            id = f.optString("id"),
+            name = f.optString("name"),
+            kind = f.optString("kind"),
+            size = f.optString("size").toLongOrNull() ?: f.optLong("size", 0L),
+            mimeType = effectiveMime,
+            modifiedTime = f.optString("modified_time").take(10)
+        )
+    }
+
+    private suspend fun collectVideosRecursive(
+        folderId: String,
+        creds: PikPakCredentials,
+        depth: Int = 0,
+        maxDepth: Int = 3
+    ): List<PikPakDriveItem> {
+        val items = try {
+            listDirectoryItems(folderId, creds)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val out = mutableListOf<PikPakDriveItem>()
+        for (item in items) {
+            if (item.isVideo) {
+                out.add(item)
+            } else if (item.isFolder && depth < maxDepth) {
+                out.addAll(collectVideosRecursive(item.id, creds, depth + 1, maxDepth))
+            }
+        }
+        return out
+    }
+
+    suspend fun resolveQuickStreamVideos(
+        fileId: String,
+        taskName: String,
+        creds: PikPakCredentials
+    ): List<PikPakDriveItem> {
+        if (fileId.isNotBlank()) {
+            val meta = getDriveItemMetadata(fileId, creds)
+            if (meta != null) {
+                if (!meta.isFolder) {
+                    if (meta.isVideo) return listOf(meta)
+                } else {
+                    val nested = collectVideosRecursive(meta.id, creds)
+                    if (nested.isNotEmpty()) return nested
+                }
+            }
+        }
+
+        // Fallback: check target download folder or "My Pack" in root by matching taskName
+        val searchDirs = buildList {
+            if (creds.targetFolderId.isNotBlank()) {
+                add(creds.targetFolderId)
+            } else {
+                add("")
+            }
+        }
+        for (dirId in searchDirs) {
+            val dirItems = try { listDirectoryItems(dirId, creds) } catch (_: Exception) { emptyList() }
+            if (taskName.isNotBlank()) {
+                val directMatch = dirItems.firstOrNull { it.name.equals(taskName, ignoreCase = true) }
+                if (directMatch != null) {
+                    if (directMatch.isVideo) return listOf(directMatch)
+                    if (directMatch.isFolder) {
+                        val vids = collectVideosRecursive(directMatch.id, creds)
+                        if (vids.isNotEmpty()) return vids
+                    }
+                }
+            }
+            if (dirId.isEmpty()) {
+                val myPack = dirItems.firstOrNull {
+                    it.isFolder && (it.name.equals("My Pack", ignoreCase = true) || it.name.contains("Cloud Download", ignoreCase = true))
+                }
+                if (myPack != null && taskName.isNotBlank()) {
+                    val packItems = try { listDirectoryItems(myPack.id, creds) } catch (_: Exception) { emptyList() }
+                    val packMatch = packItems.firstOrNull { it.name.equals(taskName, ignoreCase = true) }
+                    if (packMatch != null) {
+                        if (packMatch.isVideo) return listOf(packMatch)
+                        if (packMatch.isFolder) {
+                            val vids = collectVideosRecursive(packMatch.id, creds)
+                            if (vids.isNotEmpty()) return vids
+                        }
+                    }
+                }
+            }
+        }
+        return emptyList()
+    }
+
+    /**
+     * Filters out tiny promo/sample/ad clips when a main feature video exists,
+     * while preserving multi-episode or multi-part videos.
+     */
+    fun filterSignificantVideos(videos: List<PikPakDriveItem>): List<PikPakDriveItem> {
+        if (videos.size <= 1) return videos
+        val maxSize = videos.maxOfOrNull { it.size } ?: 0L
+        val promoRegex = Regex("(^|[\\s._\\-\\[\\(])(sample|trailer|promo|preview|featurette|宣传|广告|福利)([\\s._\\-\\]\\)]|$)", RegexOption.IGNORE_CASE)
+        val significant = if (maxSize >= 60L * 1024 * 1024) {
+            videos.filter { v ->
+                val isTinyClip = v.size in 1L until (25L * 1024 * 1024) && v.size < maxSize / 5
+                val isSmallPromo = v.size in 1L until (maxSize / 8) && promoRegex.containsMatchIn(v.name)
+                !isTinyClip && !isSmallPromo
+            }
+        } else {
+            videos
+        }
+        val finalList = significant.ifEmpty { videos }
+        return finalList.sortedBy { it.name.lowercase(Locale.ROOT) }
     }
 
     suspend fun listRecentOfflineTasks(creds: PikPakCredentials): List<PikPakTaskInfo> {
@@ -589,16 +927,7 @@ object PikPakClient {
         val out = mutableListOf<PikPakTaskInfo>()
         for (i in 0 until arr.length()) {
             val t = arr.optJSONObject(i) ?: continue
-            out.add(
-                PikPakTaskInfo(
-                    id = t.optString("id"),
-                    name = t.optString("name").ifBlank { t.optString("file_name", "Tugas Cloud") },
-                    phase = t.optString("phase").removePrefix("PHASE_TYPE_"),
-                    progress = t.optInt("progress", 0),
-                    fileSize = t.optLong("file_size", 0L),
-                    message = t.optString("message")
-                )
-            )
+            out.add(parseTaskJson(t))
         }
         return out
     }

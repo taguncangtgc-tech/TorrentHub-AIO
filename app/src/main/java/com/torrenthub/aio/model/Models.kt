@@ -136,7 +136,33 @@ data class PikPakTaskInfo(
     val phase: String,
     val progress: Int,
     val fileSize: Long,
-    val message: String = ""
+    val message: String = "",
+    val fileId: String = ""
+)
+
+enum class QuickStreamStage {
+    SENDING_MAGNET,
+    CACHING_CLOUD,
+    RESOLVING_VIDEO,
+    SELECT_VIDEO,
+    LAUNCHING_PLAYER,
+    TIMEOUT,
+    ERROR
+}
+
+data class QuickStreamState(
+    val torrentTitle: String,
+    val magnet: String,
+    val stage: QuickStreamStage = QuickStreamStage.SENDING_MAGNET,
+    val taskId: String = "",
+    val fileId: String = "",
+    val taskName: String = "",
+    val phaseLabel: String = "PENDING",
+    val progress: Int = 0,
+    val elapsedSec: Int = 0,
+    val candidateVideos: List<PikPakDriveItem> = emptyList(),
+    val busyVideoId: String? = null,
+    val errorMessage: String = ""
 )
 
 data class BrowserBookmark(

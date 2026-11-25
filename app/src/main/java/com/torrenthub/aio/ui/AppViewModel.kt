@@ -1,6 +1,7 @@
 package com.torrenthub.aio.ui
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -9,8 +10,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.torrenthub.aio.R
+import com.torrenthub.aio.data.AppLanguage
+import com.torrenthub.aio.data.AppThemeMode
 import com.torrenthub.aio.data.GeminiEngine
 import com.torrenthub.aio.data.PikPakClient
+import com.torrenthub.aio.data.SettingsRepository
 import com.torrenthub.aio.data.SubtitleRepository
 import com.torrenthub.aio.data.TorrentRepository
 import com.torrenthub.aio.data.UserscriptManager
@@ -21,17 +26,22 @@ import com.torrenthub.aio.model.PikPakDriveItem
 import com.torrenthub.aio.model.PikPakFolder
 import com.torrenthub.aio.model.PikPakTaskInfo
 import com.torrenthub.aio.model.PillState
+import com.torrenthub.aio.model.QuickStreamStage
+import com.torrenthub.aio.model.QuickStreamState
 import com.torrenthub.aio.model.SourceStatus
 import com.torrenthub.aio.model.SubtitleItem
 import com.torrenthub.aio.model.TorrentItem
 import com.torrenthub.aio.model.UserscriptItem
 import com.torrenthub.aio.model.UserscriptMenuCmd
+import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.util.Formatters
+import com.torrenthub.aio.util.LocaleHelper
 import com.torrenthub.aio.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -45,26 +55,118 @@ import java.util.UUID
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val prefs = app.getSharedPreferences("torrenthub_aio_prefs", Application.MODE_PRIVATE)
+    val settings = SettingsRepository.getInstance(app)
 
     private val _toastFlow = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toastFlow = _toastFlow.asSharedFlow()
+
+    data class VideoPlayEvent(
+        val streamUrl: String,
+        val videoTitle: String
+    )
+
+    private val _videoPlayFlow = MutableSharedFlow<VideoPlayEvent>(extraBufferCapacity = 4)
+    val videoPlayFlow = _videoPlayFlow.asSharedFlow()
+
+    var quickStreamState by mutableStateOf<QuickStreamState?>(null)
+        private set
+    private var quickStreamJob: Job? = null
 
     fun emitToast(msg: String) {
         _toastFlow.tryEmit(msg)
     }
 
+    fun str(@StringRes resId: Int, vararg args: Any): String {
+        val res = LocaleHelper.getLocalizedResources(getApplication(), appLanguage.code)
+        return if (args.isEmpty()) res.getString(resId) else res.getString(resId, *args)
+    }
+
+    fun localizedLangLabel(lang: AppLanguage): String = when (lang) {
+        AppLanguage.ID -> str(R.string.lang_id)
+        AppLanguage.EN -> str(R.string.lang_en)
+        AppLanguage.ZH -> str(R.string.lang_zh)
+        AppLanguage.JA -> str(R.string.lang_ja)
+        AppLanguage.KO -> str(R.string.lang_ko)
+    }
+
+    /* =====================================================================
+     * PHASE 1: GLOBAL APP SETTINGS (LANGUAGE, SUBTITLE TARGET, THEME, SWIPE)
+     * ===================================================================== */
+    var appLanguage by mutableStateOf(settings.appLanguage)
+        private set
+    var subtitleTargetLang by mutableStateOf(settings.subtitleTargetLang)
+        private set
+    var themeMode by mutableStateOf(settings.themeMode)
+        private set
+    var browserTabSwipeEnabled by mutableStateOf(settings.browserTabSwipeEnabled)
+        private set
+    var showSettingsDialog by mutableStateOf(false)
+
     var currentTab by mutableIntStateOf(0)
+
+    fun updateAppLanguage(lang: AppLanguage) {
+        if (appLanguage == lang) return
+        appLanguage = lang
+        LocaleHelper.localeForCode(lang.code).let { java.util.Locale.setDefault(it) }
+        settings.setAppLanguage(lang)
+    }
+
+    fun updateThemeMode(mode: AppThemeMode) {
+        if (themeMode == mode) return
+        themeMode = mode
+        settings.setThemeMode(mode)
+    }
+
+    fun updateBrowserTabSwipe(enabled: Boolean) {
+        browserTabSwipeEnabled = enabled
+        settings.setBrowserTabSwipeEnabled(enabled)
+    }
+
+    fun updateSubtitleTargetLang(lang: AppLanguage) {
+        if (subtitleTargetLang == lang) return
+        subtitleTargetLang = lang
+        if (GeminiEngine.isBuiltInDefaultTranslateNotes(geminiNotesTranslate)) {
+            geminiNotesTranslate = GeminiEngine.defaultNotesTranslate(lang.code)
+        }
+        if (GeminiEngine.isBuiltInDefaultPolishNotes(geminiNotesPolish)) {
+            geminiNotesPolish = GeminiEngine.defaultNotesPolish(lang.code)
+        }
+        saveGeminiSettings()
+
+        if (!isGeminiRunning && geminiJobs.isNotEmpty()) {
+            geminiJobs.forEachIndexed { idx, job ->
+                val sub = parsedSubMap[job.id] ?: return@forEachIndexed
+                val saved = settings.loadJobProgress(job.fileName, sub.texts.size, geminiTaskMode, lang.code)
+                if (saved != null) {
+                    progressMap[job.id] = saved
+                } else {
+                    progressMap.remove(job.id)
+                }
+                val nonEmptyCount = sub.texts.count { it.isNotBlank() }
+                val savedDone = saved?.count { it.isNotBlank() } ?: 0
+                val hasSaved = savedDone > 0
+                val outName = GeminiEngine.formatOutputFileName(job.fileName, geminiNameMode, lang.code)
+                val built = if (hasSaved && saved != null) GeminiEngine.buildSubtitle(sub, saved, currentBuildOpts()) else null
+                geminiJobs[idx] = job.copy(
+                    pct = if (hasSaved && nonEmptyCount > 0) ((savedDone * 100) / nonEmptyCount) else 0,
+                    statusText = if (hasSaved) str(R.string.gemini_job_saved_progress, savedDone, nonEmptyCount)
+                    else str(R.string.gemini_job_ready, nonEmptyCount, outName),
+                    resultContent = built,
+                    hasSavedProgress = hasSaved
+                )
+            }
+        }
+    }
 
     /* =====================================================================
      * TAB 0: TORRENT SEARCH (16 SITUS)
      * ===================================================================== */
     var torrentQuery by mutableStateOf("")
     var torrentSubFilter by mutableStateOf("")
-    var torrentSortMode by mutableStateOf(prefs.getString("uta_sort", "seeders-desc") ?: "seeders-desc")
+    var torrentSortMode by mutableStateOf(settings.torrentSortMode)
     var torrentSourceFilter by mutableStateOf("all")
     var torrentTagFilter by mutableStateOf("all")
-    var hideDeadTorrents by mutableStateOf(prefs.getBoolean("uta_hide_dead", true))
+    var hideDeadTorrents by mutableStateOf(settings.hideDeadTorrents)
     var isSearchingTorrents by mutableStateOf(false)
 
     val enabledSources = mutableStateMapOf<String, Boolean>()
@@ -82,32 +184,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var subtitleQuery by mutableStateOf("")
     var subtitleSortMode by mutableStateOf("size-desc")
     var isSearchingSubtitles by mutableStateOf(false)
-    var subtitleStatusMsg by mutableStateOf("Masukkan kode/judul video untuk mencari subtitle.")
+    var subtitleStatusMsg by mutableStateOf<String?>(null)
     val subtitleResults = mutableStateListOf<SubtitleItem>()
 
     /* =====================================================================
      * TAB 2: GEMINI SUBTITLE TRANSLATOR
      * ===================================================================== */
-    var geminiKeysRaw by mutableStateOf(prefs.getString("gst_keys", "") ?: "")
-    var geminiModel by mutableStateOf(prefs.getString("gst_model", GeminiEngine.DEFAULT_MODEL) ?: GeminiEngine.DEFAULT_MODEL)
+    var geminiKeysRaw by mutableStateOf(settings.geminiKeysRaw)
+    var geminiModel by mutableStateOf(settings.geminiModel)
     val geminiAvailableModels = mutableStateListOf<String>()
-    var geminiTaskMode by mutableStateOf(prefs.getString("gst_task_mode", "translate") ?: "translate")
-    var geminiAutoDetect by mutableStateOf(prefs.getBoolean("gst_autodetect", true))
-    var geminiNameMode by mutableStateOf(prefs.getString("gst_name_mode", "code-upper") ?: "code-upper")
-    var geminiNotesTranslate by mutableStateOf(
-        prefs.getString("gst_notes_tr", GeminiEngine.DEFAULT_NOTES_TRANSLATE) ?: GeminiEngine.DEFAULT_NOTES_TRANSLATE
-    )
-    var geminiNotesPolish by mutableStateOf(
-        prefs.getString("gst_notes_pl", GeminiEngine.DEFAULT_NOTES_POLISH) ?: GeminiEngine.DEFAULT_NOTES_POLISH
-    )
-    var geminiGlossary by mutableStateOf(prefs.getString("gst_glossary", "") ?: "")
-    var geminiRelaxSafety by mutableStateOf(prefs.getBoolean("gst_safety", true))
-    var geminiIncludeAllLines by mutableStateOf(prefs.getBoolean("gst_all_lines", false))
-    var geminiSlidingContext by mutableStateOf(prefs.getBoolean("gst_sliding_ctx", true))
-    var geminiCleanAds by mutableStateOf(prefs.getBoolean("gst_clean_ads", true))
-    var geminiBilingual by mutableStateOf(prefs.getBoolean("gst_bilingual", false))
-    var geminiTimeShiftSec by mutableStateOf(prefs.getString("gst_shift_sec", "0") ?: "0")
-    var geminiAutoUploadPikPak by mutableStateOf(prefs.getBoolean("gst_auto_up_pikpak", false))
+    var geminiTaskMode by mutableStateOf(settings.geminiTaskMode)
+    var geminiAutoDetect by mutableStateOf(settings.geminiAutoDetect)
+    var geminiNameMode by mutableStateOf(settings.geminiNameMode)
+    var geminiNotesTranslate by mutableStateOf(settings.geminiNotesTranslate)
+    var geminiNotesPolish by mutableStateOf(settings.geminiNotesPolish)
+    var geminiGlossary by mutableStateOf(settings.geminiGlossary)
+    var geminiRelaxSafety by mutableStateOf(settings.geminiRelaxSafety)
+    var geminiIncludeAllLines by mutableStateOf(settings.geminiIncludeAllLines)
+    var geminiSlidingContext by mutableStateOf(settings.geminiSlidingContext)
+    var geminiCleanAds by mutableStateOf(settings.geminiCleanAds)
+    var geminiBilingual by mutableStateOf(settings.geminiBilingual)
+    var geminiTimeShiftSec by mutableStateOf(settings.geminiTimeShiftSec)
+    var geminiAutoUploadPikPak by mutableStateOf(settings.geminiAutoUploadPikPak)
     var uploadingGeminiJobId by mutableStateOf<String?>(null)
 
     val geminiJobs = mutableStateListOf<GeminiJob>()
@@ -115,18 +213,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val progressMap = HashMap<String, MutableList<String>>()
     var isGeminiRunning by mutableStateOf(false)
     private var geminiCancelRequested = false
-    var geminiStatusText by mutableStateOf("Siap: Pilih file .srt/.ass/.vtt dari HP atau kirim dari tab Subtitle/PikPak.")
-    var geminiPreviewLog by mutableStateOf("Pratinjau dialog & hasil tes koneksi akan muncul di sini.")
+    var geminiStatusText by mutableStateOf<String?>(null)
+    var geminiPreviewLog by mutableStateOf<String?>(null)
 
     /* =====================================================================
      * TAB 3: PIKPAK CLOUD ACCOUNT & MINI FILE MANAGER
      * ===================================================================== */
-    var pikpakCreds by mutableStateOf(loadPikPakCreds())
-    var pikpakSubTab by mutableIntStateOf(0) // 0 = File Manager My Drive, 1 = Tugas Cloud Download
+    var pikpakCreds by mutableStateOf(settings.loadPikPakCreds())
+    var pikpakSubTab by mutableIntStateOf(0)
     var isLoadingPikPakTasks by mutableStateOf(false)
     val pikpakTasks = mutableStateListOf<PikPakTaskInfo>()
 
-    val pikpakBrowserStack = mutableStateListOf<Pair<String, String>>() // (folderId, folderName)
+    val pikpakBrowserStack = mutableStateListOf<Pair<String, String>>()
     val currentPikPakFolderId: String
         get() = pikpakBrowserStack.lastOrNull()?.first.orEmpty()
     val currentPikPakFolderName: String
@@ -139,15 +237,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /* =====================================================================
      * TAB 4: BUILT-IN BROWSER + TAMPERMONKEY USERSCRIPT ENGINE
      * ===================================================================== */
-    var browserCurrentUrl by mutableStateOf(
-        prefs.getString("browser_last_url", "https://www.google.com") ?: "https://www.google.com"
-    )
+    var browserCurrentUrl by mutableStateOf(settings.browserLastUrl)
     var browserPageTitle by mutableStateOf("")
     var browserIsLoading by mutableStateOf(false)
     var browserProgress by mutableIntStateOf(0)
     var browserCanGoBack by mutableStateOf(false)
     var browserCanGoForward by mutableStateOf(false)
-    var browserAdShieldEnabled by mutableStateOf(prefs.getBoolean("browser_adshield", true))
+    var browserAdShieldEnabled by mutableStateOf(settings.browserAdShieldEnabled)
     var browserBlockedAdsCount by mutableIntStateOf(0)
     var browserSelectedQuery by mutableStateOf("")
 
@@ -158,6 +254,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val activePageMenuCommands = mutableStateListOf<UserscriptMenuCmd>()
 
     init {
+        if (GeminiEngine.isBuiltInDefaultTranslateNotes(geminiNotesTranslate)) {
+            geminiNotesTranslate = GeminiEngine.defaultNotesTranslate(subtitleTargetLang.code)
+        }
+        if (GeminiEngine.isBuiltInDefaultPolishNotes(geminiNotesPolish)) {
+            geminiNotesPolish = GeminiEngine.defaultNotesPolish(subtitleTargetLang.code)
+        }
         loadEnabledSources()
         loadSavedModels()
         loadBrowserBookmarks()
@@ -169,7 +271,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun loadEnabledSources() {
-        val raw = prefs.getString("uta_sources", null)
+        val raw = settings.enabledSourcesJson
         val savedJson = try { if (raw != null) JSONObject(raw) else null } catch (_: Exception) { null }
         for (s in TorrentRepository.SOURCES) {
             enabledSources[s.id] = savedJson?.optBoolean(s.id, s.defaultOn) ?: s.defaultOn
@@ -180,35 +282,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         enabledSources[sourceId] = checked
         val obj = JSONObject()
         enabledSources.forEach { (k, v) -> obj.put(k, v) }
-        prefs.edit().putString("uta_sources", obj.toString()).apply()
+        settings.setEnabledSourcesJson(obj.toString())
     }
 
     fun setAllSources(enableAll: Boolean) {
         TorrentRepository.SOURCES.forEach { enabledSources[it.id] = enableAll }
         val obj = JSONObject()
         enabledSources.forEach { (k, v) -> obj.put(k, v) }
-        prefs.edit().putString("uta_sources", obj.toString()).apply()
+        settings.setEnabledSourcesJson(obj.toString())
     }
 
     fun updateTorrentSort(mode: String) {
         torrentSortMode = mode
-        prefs.edit().putString("uta_sort", mode).apply()
+        settings.setTorrentSortMode(mode)
     }
 
     fun updateHideDead(hide: Boolean) {
         hideDeadTorrents = hide
-        prefs.edit().putBoolean("uta_hide_dead", hide).apply()
+        settings.setHideDeadTorrents(hide)
     }
 
     fun runTorrentSearch() {
         val q = torrentQuery.trim()
         if (q.isEmpty()) {
-            emitToast("Masukkan kata kunci pencarian dulu.")
+            emitToast(str(R.string.toast_enter_query))
             return
         }
         val activeSources = TorrentRepository.SOURCES.filter { enabledSources[it.id] == true }
         if (activeSources.isEmpty()) {
-            emitToast("Aktifkan minimal 1 sumber torrent.")
+            emitToast(str(R.string.toast_enable_source))
             return
         }
 
@@ -242,7 +344,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             SourceStatus(src.id, src.label, PillState.OK, count = items.size)
                         )
                     } catch (e: Exception) {
-                        val msg = e.message ?: "Gagal"
+                        val msg = e.message ?: "Error"
                         val canBypass = src.supportsWebViewBridge &&
                             Regex("403|503|Cloudflare|Diblokir", RegexOption.IGNORE_CASE).containsMatchIn(msg)
                         updateSourceStatus(
@@ -271,7 +373,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun ingestCloudflareBypassHtml(sourceId: String, pageUrl: String, html: String, cookieHeader: String) {
         viewModelScope.launch {
             val src = TorrentRepository.SOURCES.firstOrNull { it.id == sourceId } ?: return@launch
-            updateSourceStatus(SourceStatus(sourceId, src.label, PillState.LOADING, message = "mengambil magnet…"))
+            updateSourceStatus(SourceStatus(sourceId, src.label, PillState.LOADING, message = "…"))
             try {
                 val doc = Jsoup.parse(html, pageUrl)
                 val items = when (sourceId) {
@@ -294,19 +396,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     allTorrents.addAll(merged)
                 }
                 updateSourceStatus(SourceStatus(sourceId, "${src.label} (Bypass)", PillState.OK, count = items.size))
-                emitToast("✅ ${src.label}: ${items.size} hasil berhasil diambil!")
+                emitToast(str(R.string.toast_bypass_ok, src.label, items.size))
             } catch (e: Exception) {
                 updateSourceStatus(
                     SourceStatus(
                         sourceId = sourceId,
                         label = src.label,
                         state = PillState.ERROR,
-                        message = e.message ?: "Gagal bypass",
+                        message = e.message ?: "Bypass error",
                         canBypassCloudflare = true,
                         bypassUrl = pageUrl
                     )
                 )
-                emitToast("❌ Bypass gagal: ${e.message}")
+                emitToast(str(R.string.toast_bypass_fail, e.message ?: "Error"))
             }
         }
     }
@@ -354,34 +456,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (customQuery != null) subtitleQuery = customQuery
         val q = subtitleQuery.trim()
         if (q.isEmpty()) {
-            emitToast("Masukkan kode atau nama subtitle dulu.")
+            emitToast(str(R.string.toast_enter_sub_query))
             return
         }
         viewModelScope.launch {
             isSearchingSubtitles = true
             subtitleResults.clear()
-            subtitleStatusMsg = "⏳ Mencari subtitle untuk \"$q\"…"
+            subtitleStatusMsg = str(R.string.sub_status_searching, q)
             try {
                 val initial = SubtitleRepository.searchSubtitles(q)
                 if (initial.isEmpty()) {
-                    subtitleStatusMsg = "Tidak ditemukan subtitle untuk \"$q\"."
+                    subtitleStatusMsg = str(R.string.sub_status_not_found, q)
                 } else {
                     subtitleResults.addAll(initial)
-                    subtitleStatusMsg = "⏳ Mengecek ukuran file subtitle… 0/${initial.size}"
+                    subtitleStatusMsg = str(R.string.sub_status_probing, 0, initial.size)
                     val sized = SubtitleRepository.probeSizes(initial) { done, total, updatedItem ->
                         viewModelScope.launch {
                             val idx = subtitleResults.indexOfFirst { it.idKey == updatedItem.idKey }
                             if (idx >= 0) subtitleResults[idx] = updatedItem
-                            subtitleStatusMsg = "⏳ Mengecek ukuran file subtitle… $done/$total"
+                            subtitleStatusMsg = str(R.string.sub_status_probing, done, total)
                         }
                     }
                     subtitleResults.clear()
                     subtitleResults.addAll(sized)
                     val knownCount = sized.count { it.sizeBytes > 0L }
-                    subtitleStatusMsg = "Ditemukan ${sized.size} subtitle ($knownCount ukuran terdeteksi)."
+                    subtitleStatusMsg = str(R.string.sub_status_found, sized.size, knownCount)
                 }
             } catch (e: Exception) {
-                subtitleStatusMsg = "Gagal mencari: ${e.message}"
+                subtitleStatusMsg = str(R.string.sub_status_error, e.message ?: "Error")
             } finally {
                 isSearchingSubtitles = false
             }
@@ -396,19 +498,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendSubtitleItemToGemini(item: SubtitleItem) {
         if (item.ext.lowercase() !in SubtitleRepository.SUPPORTED_TEXT_EXTS) {
-            emitToast("Format .${item.ext} tidak didukung (hanya .srt, .vtt, .ass, .ssa)")
+            emitToast(str(R.string.toast_unsupported_ext, item.ext))
             return
         }
         viewModelScope.launch {
-            emitToast("⏳ Mengambil \"${item.name}\"…")
+            emitToast(str(R.string.toast_fetching_sub, item.name))
             try {
                 val content = SubtitleRepository.fetchSubtitleText(item.url)
-                if (content.isBlank()) throw Exception("Isi file subtitle kosong")
+                if (content.isBlank()) throw Exception("Empty subtitle content")
                 addGeminiJob(item.name, content)
                 currentTab = 2
-                emitToast("✨ \"${item.name}\" masuk ke Gemini Translator!")
+                emitToast(str(R.string.toast_sent_to_gemini, item.name))
             } catch (e: Exception) {
-                emitToast("❌ Gagal mengambil subtitle: ${e.message}")
+                emitToast(str(R.string.toast_fetch_sub_failed, e.message ?: "Error"))
             }
         }
     }
@@ -418,7 +520,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * ===================================================================== */
     private fun loadSavedModels() {
         geminiAvailableModels.clear()
-        val raw = prefs.getString("gst_models_list", null)
+        val raw = settings.geminiSavedModelsJson
         val extra = mutableListOf<String>()
         if (raw != null) {
             try {
@@ -433,46 +535,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun saveGeminiSettings() {
-        prefs.edit()
-            .putString("gst_keys", geminiKeysRaw.trim())
-            .putString("gst_model", geminiModel)
-            .putString("gst_task_mode", geminiTaskMode)
-            .putBoolean("gst_autodetect", geminiAutoDetect)
-            .putString("gst_name_mode", geminiNameMode)
-            .putString("gst_notes_tr", geminiNotesTranslate)
-            .putString("gst_notes_pl", geminiNotesPolish)
-            .putString("gst_glossary", geminiGlossary)
-            .putBoolean("gst_safety", geminiRelaxSafety)
-            .putBoolean("gst_all_lines", geminiIncludeAllLines)
-            .putBoolean("gst_sliding_ctx", geminiSlidingContext)
-            .putBoolean("gst_clean_ads", geminiCleanAds)
-            .putBoolean("gst_bilingual", geminiBilingual)
-            .putString("gst_shift_sec", geminiTimeShiftSec)
-            .putBoolean("gst_auto_up_pikpak", geminiAutoUploadPikPak)
-            .apply()
-    }
-
-    private fun progressStorageKey(fileName: String, totalSlots: Int, mode: String): String =
-        "gst_prog_${mode}_${fileName}_$totalSlots"
-
-    private fun loadJobProgress(fileName: String, totalSlots: Int, mode: String): MutableList<String>? {
-        val raw = prefs.getString(progressStorageKey(fileName, totalSlots, mode), null) ?: return null
-        return try {
-            val arr = JSONArray(raw)
-            if (arr.length() != totalSlots) null
-            else MutableList(arr.length()) { arr.optString(it, "") }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun saveJobProgress(fileName: String, totalSlots: Int, mode: String, list: List<String>) {
-        val arr = JSONArray().apply { list.forEach { put(it) } }
-        prefs.edit().putString(progressStorageKey(fileName, totalSlots, mode), arr.toString()).apply()
-    }
-
-    private fun clearJobProgress(fileName: String, totalSlots: Int, mode: String) {
-        prefs.edit().remove(progressStorageKey(fileName, totalSlots, mode)).apply()
+        settings.saveGeminiSettings(
+            keysRaw = geminiKeysRaw,
+            model = geminiModel,
+            taskMode = geminiTaskMode,
+            autoDetect = geminiAutoDetect,
+            nameMode = geminiNameMode,
+            notesTranslate = geminiNotesTranslate,
+            notesPolish = geminiNotesPolish,
+            glossary = geminiGlossary,
+            relaxSafety = geminiRelaxSafety,
+            includeAllLines = geminiIncludeAllLines,
+            slidingContext = geminiSlidingContext,
+            cleanAds = geminiCleanAds,
+            bilingual = geminiBilingual,
+            timeShiftSec = geminiTimeShiftSec,
+            autoUploadPikPak = geminiAutoUploadPikPak,
+            targetLangCode = subtitleTargetLang.code
+        )
     }
 
     private fun currentBuildOpts() = GeminiEngine.BuildOptions(
@@ -484,29 +564,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun addGeminiJob(fileName: String, content: String) {
         val ext = fileName.substringAfterLast('.', "srt").lowercase()
         val parsed = GeminiEngine.parseSubtitle(content, ext)
+        val targetCode = subtitleTargetLang.code
+        val targetLabel = localizedLangLabel(subtitleTargetLang)
 
         if (geminiAutoDetect && geminiJobs.isEmpty()) {
-            val detected = GeminiEngine.detectLanguageMode(parsed.texts)
+            val detected = GeminiEngine.detectLanguageMode(parsed.texts, targetCode)
             if (detected != geminiTaskMode) {
                 geminiTaskMode = detected
                 saveGeminiSettings()
                 geminiStatusText = if (detected == "polish") {
-                    "Auto-deteksi: Subtitle Bahasa Indonesia -> Mode Perbaiki SRT ID aktif."
+                    str(R.string.gemini_autodetect_polish, targetLabel)
                 } else {
-                    "Auto-deteksi: Subtitle Bahasa Asing -> Mode Terjemahkan aktif."
+                    str(R.string.gemini_autodetect_translate, targetLabel)
                 }
             }
         }
 
         val id = UUID.randomUUID().toString()
         parsedSubMap[id] = parsed
-        val saved = loadJobProgress(fileName, parsed.texts.size, geminiTaskMode)
+        val saved = settings.loadJobProgress(fileName, parsed.texts.size, geminiTaskMode, targetCode)
         if (saved != null) progressMap[id] = saved
 
         val nonEmptyCount = parsed.texts.count { it.isNotBlank() }
         val savedDone = saved?.count { it.isNotBlank() } ?: 0
         val hasSaved = savedDone > 0
-        val outName = GeminiEngine.formatOutputFileName(fileName, geminiNameMode)
+        val outName = GeminiEngine.formatOutputFileName(fileName, geminiNameMode, targetCode)
         val built = if (hasSaved && saved != null) GeminiEngine.buildSubtitle(parsed, saved, currentBuildOpts()) else null
 
         val newJob = GeminiJob(
@@ -516,8 +598,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             originalContent = content,
             totalLines = nonEmptyCount,
             pct = if (hasSaved && nonEmptyCount > 0) ((savedDone * 100) / nonEmptyCount) else 0,
-            statusText = if (hasSaved) "Progres tersimpan ($savedDone/$nonEmptyCount baris) siap dilanjutkan."
-            else "Siap ($nonEmptyCount baris dialog -> $outName)",
+            statusText = if (hasSaved) str(R.string.gemini_job_saved_progress, savedDone, nonEmptyCount)
+            else str(R.string.gemini_job_ready, nonEmptyCount, outName),
             resultContent = built,
             hasSavedProgress = hasSaved
         )
@@ -542,7 +624,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         geminiJobs.clear()
         parsedSubMap.clear()
         progressMap.clear()
-        geminiStatusText = "Daftar antrean file dikosongkan."
+        geminiStatusText = str(R.string.gemini_status_queue_cleared)
     }
 
     fun resetSingleGeminiJob(jobId: String) {
@@ -551,53 +633,52 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (idx < 0) return
         val job = geminiJobs[idx]
         val sub = parsedSubMap[jobId] ?: return
-        clearJobProgress(job.fileName, sub.texts.size, geminiTaskMode)
+        settings.clearJobProgress(job.fileName, sub.texts.size, geminiTaskMode, subtitleTargetLang.code)
         progressMap.remove(jobId)
         geminiJobs[idx] = job.copy(
             pct = 0,
             resultContent = null,
             hasSavedProgress = false,
             uploadedToPikPak = false,
-            statusText = "Progres direset. Siap mulai dari awal."
+            statusText = str(R.string.gemini_job_reset)
         )
     }
 
     fun testGeminiKeys() {
         val keys = GeminiEngine.parseKeys(geminiKeysRaw)
         if (keys.isEmpty()) {
-            emitToast("Masukkan minimal 1 API key terlebih dahulu.")
+            emitToast(str(R.string.toast_enter_api_key))
             return
         }
         saveGeminiSettings()
         viewModelScope.launch {
-            geminiStatusText = "⏳ Menguji ${keys.size} API key…"
+            geminiStatusText = str(R.string.gemini_status_testing_keys, keys.size)
             val logs = GeminiEngine.pingKeys(keys, geminiModel)
             geminiPreviewLog = logs.joinToString("\n")
-            geminiStatusText = "Tes koneksi selesai (${keys.size} key)."
+            geminiStatusText = str(R.string.gemini_status_test_done, keys.size)
         }
     }
 
     fun refreshGeminiModels() {
         val keys = GeminiEngine.parseKeys(geminiKeysRaw)
         if (keys.isEmpty()) {
-            emitToast("Masukkan minimal 1 API key terlebih dahulu.")
+            emitToast(str(R.string.toast_enter_api_key))
             return
         }
         saveGeminiSettings()
         viewModelScope.launch {
-            geminiStatusText = "⏳ Mengambil daftar model aktif…"
+            geminiStatusText = str(R.string.gemini_status_fetching_models)
             val models = GeminiEngine.fetchAvailableModels(keys)
             geminiAvailableModels.clear()
             geminiAvailableModels.addAll(models)
-            val arr = JSONArray().apply { models.forEach { put(it) } }
-            prefs.edit().putString("gst_models_list", arr.toString()).apply()
-            geminiStatusText = "✅ ${models.size} model tersedia."
+            settings.saveGeminiModelsList(models)
+            geminiStatusText = str(R.string.gemini_status_models_ready, models.size)
         }
     }
 
     fun stopGeminiRun() {
         geminiCancelRequested = true
-        geminiStatusText = "Menghentikan proses & menyimpan progres…"
+        geminiStatusText = str(R.string.gemini_status_stopping)
     }
 
     private suspend fun uploadGeminiJobToPikPakInternal(jobId: String, silentIfAuto: Boolean = false): Boolean {
@@ -606,18 +687,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val job = geminiJobs[idx]
         val content = job.resultContent
         if (content.isNullOrBlank()) {
-            if (!silentIfAuto) emitToast("Hasil terjemahan belum tersedia.")
+            if (!silentIfAuto) emitToast(str(R.string.toast_no_result_yet))
             return false
         }
         if (!pikpakCreds.isLoggedIn) {
             if (!silentIfAuto) {
-                emitToast("Login ke PikPak dulu di tab PikPak!")
+                emitToast(str(R.string.toast_pikpak_login_first))
                 currentTab = 3
             }
             return false
         }
 
-        val outName = GeminiEngine.formatOutputFileName(job.fileName, geminiNameMode)
+        val outName = GeminiEngine.formatOutputFileName(job.fileName, geminiNameMode, subtitleTargetLang.code)
         uploadingGeminiJobId = jobId
         return try {
             val res = PikPakClient.uploadSubtitleFile(outName, content, pikpakCreds)
@@ -628,18 +709,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     val cur = geminiJobs[curIdx]
                     geminiJobs[curIdx] = cur.copy(
                         uploadedToPikPak = true,
-                        statusText = "${cur.statusText} · ☁️ Ter-upload ke ${pikpakCreds.targetFolderName}"
+                        statusText = "${cur.statusText} · ☁️ ${pikpakCreds.targetFolderName}"
                     )
                 }
                 if (currentPikPakFolderId == pikpakCreds.targetFolderId) {
                     loadPikPakDirectory(currentPikPakFolderId)
                 }
                 if (!silentIfAuto) {
-                    emitToast("☁️ \"$outName\" berhasil di-upload ke PikPak (${pikpakCreds.targetFolderName})!")
+                    emitToast(str(R.string.toast_pikpak_uploaded, outName, pikpakCreds.targetFolderName))
                 }
                 true
             } else {
-                emitToast("❌ Upload PikPak gagal: ${res.errorMessage}")
+                emitToast("❌ PikPak: ${res.errorMessage}")
                 false
             }
         } finally {
@@ -656,16 +737,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun startGeminiTranslation(limitLines: Int = 0) {
         val keys = GeminiEngine.parseKeys(geminiKeysRaw)
         if (keys.isEmpty()) {
-            emitToast("Isi minimal 1 API key Google AI Studio atau OpenRouter dulu.")
+            emitToast(str(R.string.toast_enter_api_key))
             return
         }
         if (geminiJobs.isEmpty()) {
-            emitToast("Tambahkan file subtitle terlebih dahulu.")
+            emitToast(str(R.string.toast_add_sub_first))
             return
         }
         saveGeminiSettings()
 
         val appCtx = getApplication<Application>()
+        val activeTargetCode = subtitleTargetLang.code
 
         viewModelScope.launch {
             isGeminiRunning = true
@@ -674,6 +756,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 keys = keys,
                 model = geminiModel,
                 taskMode = geminiTaskMode,
+                targetLang = activeTargetCode,
                 notes = if (geminiTaskMode == "polish") geminiNotesPolish else geminiNotesTranslate,
                 glossary = geminiGlossary,
                 relaxSafety = geminiRelaxSafety,
@@ -689,8 +772,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (geminiCancelRequested) break
                 val job = geminiJobs[idx]
                 val sub = parsedSubMap[job.id] ?: continue
-                geminiStatusText = "Memproses ${job.fileName}…"
-                NotificationHelper.showTranslationProgress(appCtx, job.fileName, job.pct, "Memulai terjemahan…")
+                geminiStatusText = str(R.string.gemini_status_processing, job.fileName)
+                NotificationHelper.showTranslationProgress(
+                    appCtx,
+                    job.fileName,
+                    job.pct,
+                    str(R.string.gemini_status_processing, job.fileName)
+                )
 
                 try {
                     val existing = if (limitLines > 0) null else progressMap[job.id]
@@ -704,7 +792,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             val copyList = curTr.toMutableList()
                             progressMap[job.id] = copyList
                             if (limitLines == 0) {
-                                saveJobProgress(job.fileName, sub.texts.size, geminiTaskMode, copyList)
+                                settings.saveJobProgress(job.fileName, sub.texts.size, geminiTaskMode, activeTargetCode, copyList)
                             }
                             val builtNow = GeminiEngine.buildSubtitle(sub, copyList, currentBuildOpts())
                             geminiJobs[idx] = geminiJobs[idx].copy(
@@ -721,11 +809,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     )
                     val builtFinal = GeminiEngine.buildSubtitle(sub, finalTr, currentBuildOpts())
                     if (limitLines == 0) {
-                        clearJobProgress(job.fileName, sub.texts.size, geminiTaskMode)
+                        settings.clearJobProgress(job.fileName, sub.texts.size, geminiTaskMode, activeTargetCode)
                     }
                     geminiJobs[idx] = geminiJobs[idx].copy(
                         pct = 100,
-                        statusText = if (limitLines > 0) "✅ Tes $limitLines baris selesai!" else "✅ Selesai! Siap disimpan ke HP.",
+                        statusText = if (limitLines > 0) str(R.string.gemini_status_test_lines_done, limitLines)
+                        else str(R.string.gemini_status_done_save),
                         resultContent = builtFinal,
                         hasSavedProgress = false
                     )
@@ -736,7 +825,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 } catch (e: Exception) {
                     geminiJobs[idx] = geminiJobs[idx].copy(
-                        statusText = "⚠️ Berhenti: ${e.message} (Progres aman tersimpan)"
+                        statusText = "⚠️ ${e.message}"
                     )
                 }
             }
@@ -744,19 +833,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             isGeminiRunning = false
             if (geminiCancelRequested) {
                 NotificationHelper.cancelProgress(appCtx)
-                geminiStatusText = "Proses dihentikan (progres tersimpan otomatis)."
+                geminiStatusText = str(R.string.gemini_status_stopped_saved)
             } else if (completedCount > 0) {
                 val summary = if (limitLines > 0) {
-                    "Tes $limitLines baris selesai!"
+                    str(R.string.gemini_status_test_lines_done, limitLines)
                 } else {
-                    "$completedCount file subtitle selesai diproses!" +
-                        (if (geminiAutoUploadPikPak && pikpakCreds.isLoggedIn) " (Ter-upload ke PikPak)" else "")
+                    str(R.string.notif_done_summary, completedCount) +
+                        (if (geminiAutoUploadPikPak && pikpakCreds.isLoggedIn) " (PikPak ✓)" else "")
                 }
                 NotificationHelper.showTranslationFinished(appCtx, summary)
-                geminiStatusText = "✅ Pemrosesan selesai!"
+                geminiStatusText = str(R.string.gemini_status_all_done)
             } else {
                 NotificationHelper.cancelProgress(appCtx)
-                geminiStatusText = "⚠️ Pemrosesan berhenti dengan kendala."
+                geminiStatusText = str(R.string.gemini_status_stopped_error)
             }
         }
     }
@@ -764,31 +853,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /* =====================================================================
      * PIKPAK CLOUD DOWNLOAD & MINI FILE MANAGER ACTIONS
      * ===================================================================== */
-    private fun loadPikPakCreds(): PikPakCredentials = PikPakCredentials(
-        accessToken = prefs.getString("pp_access", "") ?: "",
-        refreshToken = prefs.getString("pp_refresh", "") ?: "",
-        clientId = prefs.getString("pp_client_id", "") ?: "",
-        deviceId = prefs.getString("pp_device_id", "") ?: "",
-        captchaToken = prefs.getString("pp_captcha", "") ?: "",
-        captchaExpiresAtMs = prefs.getLong("pp_captcha_exp", 0L),
-        userEmail = prefs.getString("pp_email", "") ?: "",
-        targetFolderId = prefs.getString("pp_folder_id", "") ?: "",
-        targetFolderName = prefs.getString("pp_folder_name", "Cloud Download (Default)") ?: "Cloud Download (Default)"
-    )
-
     fun savePikPakCreds(creds: PikPakCredentials) {
         pikpakCreds = creds
-        prefs.edit()
-            .putString("pp_access", creds.accessToken)
-            .putString("pp_refresh", creds.refreshToken)
-            .putString("pp_client_id", creds.clientId)
-            .putString("pp_device_id", creds.deviceId)
-            .putString("pp_captcha", creds.captchaToken)
-            .putLong("pp_captcha_exp", creds.captchaExpiresAtMs)
-            .putString("pp_email", creds.userEmail)
-            .putString("pp_folder_id", creds.targetFolderId)
-            .putString("pp_folder_name", creds.targetFolderName)
-            .apply()
+        settings.savePikPakCreds(creds)
     }
 
     fun logoutPikPak() {
@@ -796,24 +863,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         pikpakTasks.clear()
         pikpakDirItems.clear()
         pikpakBrowserStack.clear()
-        emitToast("Akun PikPak telah diputuskan.")
+        emitToast(str(R.string.toast_pikpak_logged_out))
     }
 
     fun sendMagnetsToPikPak(magnets: List<String>) {
         if (!pikpakCreds.isLoggedIn) {
-            emitToast("Login ke PikPak dulu di tab PikPak!")
+            emitToast(str(R.string.toast_pikpak_login_first))
             currentTab = 3
             return
         }
         viewModelScope.launch {
-            emitToast("⏳ Mengirim ${magnets.size} tautan ke PikPak Cloud…")
+            emitToast(str(R.string.toast_pikpak_sending_magnets, magnets.size))
             val res = PikPakClient.sendMagnetsToCloud(magnets, pikpakCreds)
             res.updatedCreds?.let { savePikPakCreds(it) }
             if (res.ok) {
-                emitToast("✅ ${res.addedCount} tautan masuk ke PikPak (${pikpakCreds.targetFolderName})!")
+                emitToast(str(R.string.toast_pikpak_magnets_sent, res.addedCount, pikpakCreds.targetFolderName))
                 refreshPikPakTasks()
             } else {
-                emitToast("❌ Gagal (${res.addedCount}/${magnets.size}): ${res.errorMessage}")
+                emitToast(str(R.string.toast_pikpak_magnets_failed, res.addedCount, magnets.size, res.errorMessage))
             }
         }
     }
@@ -843,7 +910,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 pikpakDirItems.clear()
                 pikpakDirItems.addAll(items)
             } catch (e: Exception) {
-                pikpakDirError = e.message ?: "Gagal memuat isi folder PikPak"
+                pikpakDirError = e.message ?: "Error"
             } finally {
                 isLoadingPikPakDir = false
             }
@@ -866,7 +933,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val id = currentPikPakFolderId
         val name = if (id.isBlank()) "Cloud Download (Default)" else currentPikPakFolderName
         savePikPakCreds(pikpakCreds.copy(targetFolderId = id, targetFolderName = name))
-        emitToast("📌 Folder tujuan diatur ke: $name")
+        emitToast(str(R.string.toast_pikpak_folder_set, name))
     }
 
     fun videoHasMatchingSubtitleInDir(videoItem: PikPakDriveItem, dirItems: List<PikPakDriveItem>): Boolean {
@@ -876,7 +943,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val vidCode = Formatters.extractVideoCode(videoItem.name).uppercase()
         return subs.any { sub ->
             val subBase = sub.name.substringBeforeLast('.').trim().lowercase()
-            val subCleanBase = subBase.replace(Regex("\\.(id|ind|en|eng|chs|cht|jp|ja)$"), "")
+            val subCleanBase = subBase.replace(Regex("\\.(id|ind|en|eng|zh|chs|cht|jp|ja|ko|kor)$"), "")
             val subCode = Formatters.extractVideoCode(sub.name).uppercase()
             (vidCode.isNotEmpty() && vidCode == subCode) ||
                 subBase == vidBase ||
@@ -889,14 +956,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (!item.isSubtitle) return
         viewModelScope.launch {
             busyPikPakItemId = item.id
-            emitToast("⏳ Mengambil \"${item.name}\" dari PikPak…")
+            emitToast(str(R.string.toast_fetching_sub, item.name))
             try {
                 val links = PikPakClient.fetchFileLinks(item.id, pikpakCreds)
-                if (links.downloadUrl.isBlank()) throw Exception("Link unduhan subtitle kosong dari PikPak")
+                if (links.downloadUrl.isBlank()) throw Exception("Empty download URL")
                 val content = SubtitleRepository.fetchSubtitleText(links.downloadUrl)
-                if (content.isBlank()) throw Exception("Isi file subtitle kosong")
+                if (content.isBlank()) throw Exception("Empty subtitle content")
 
-                // Automatically set target upload folder to this subtitle's folder if inside a folder
                 if (currentPikPakFolderId.isNotBlank() && pikpakCreds.targetFolderId != currentPikPakFolderId) {
                     savePikPakCreds(
                         pikpakCreds.copy(
@@ -908,9 +974,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
                 addGeminiJob(item.name, content)
                 currentTab = 2
-                emitToast("✨ \"${item.name}\" siap diterjemahkan (tujuan upload: ${pikpakCreds.targetFolderName})!")
+                emitToast(str(R.string.toast_sent_to_gemini, item.name))
             } catch (e: Exception) {
-                emitToast("❌ Gagal mengambil subtitle PikPak: ${e.message}")
+                emitToast(str(R.string.toast_fetch_sub_failed, e.message ?: "Error"))
             } finally {
                 if (busyPikPakItemId == item.id) busyPikPakItemId = null
             }
@@ -919,14 +985,225 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun fetchPikPakSubtitleTextSuspend(item: PikPakDriveItem): String {
         val links = PikPakClient.fetchFileLinks(item.id, pikpakCreds)
-        if (links.downloadUrl.isBlank()) throw Exception("Tautan file kosong")
+        links.updatedCreds?.let { savePikPakCreds(it) }
+        if (links.downloadUrl.isBlank()) throw Exception("Empty download URL")
         return SubtitleRepository.fetchSubtitleText(links.downloadUrl)
     }
 
     suspend fun fetchPikPakStreamLinkSuspend(item: PikPakDriveItem): String {
         val links = PikPakClient.fetchFileLinks(item.id, pikpakCreds)
-        if (links.streamUrl.isBlank()) throw Exception("Tautan streaming tidak tersedia")
+        links.updatedCreds?.let { savePikPakCreds(it) }
+        if (links.streamUrl.isBlank()) throw Exception("Stream URL unavailable")
         return links.streamUrl
+    }
+
+    /* =====================================================================
+     * PHASE 2: 1-CLICK QUICK STREAM VIA PIKPAK
+     * ===================================================================== */
+    fun startQuickStream(item: TorrentItem) {
+        if (!pikpakCreds.isLoggedIn) {
+            emitToast(str(R.string.toast_pikpak_login_first))
+            currentTab = 3
+            return
+        }
+        quickStreamJob?.cancel()
+        quickStreamState = QuickStreamState(
+            torrentTitle = item.title,
+            magnet = item.magnet,
+            stage = QuickStreamStage.SENDING_MAGNET
+        )
+        quickStreamJob = viewModelScope.launch {
+            val submit = PikPakClient.addMagnetForQuickStream(item.magnet, pikpakCreds)
+            submit.updatedCreds?.let { savePikPakCreds(it) }
+            if (!submit.ok) {
+                quickStreamState = quickStreamState?.copy(
+                    stage = QuickStreamStage.ERROR,
+                    errorMessage = submit.errorMessage
+                )
+                return@launch
+            }
+
+            refreshPikPakTasks()
+            quickStreamState = quickStreamState?.copy(
+                stage = if (submit.phase == "COMPLETE") QuickStreamStage.RESOLVING_VIDEO else QuickStreamStage.CACHING_CLOUD,
+                taskId = submit.taskId,
+                fileId = submit.fileId,
+                taskName = submit.taskName.ifBlank { item.title },
+                phaseLabel = submit.phase.ifBlank { "RUNNING" },
+                progress = submit.progress,
+                errorMessage = submit.errorMessage
+            )
+
+            pollAndResolveQuickStream(maxWaitSec = 90)
+        }
+    }
+
+    fun continueQuickStreamWaiting() {
+        val cur = quickStreamState ?: return
+        if (!pikpakCreds.isLoggedIn) return
+        quickStreamJob?.cancel()
+        quickStreamState = cur.copy(
+            stage = QuickStreamStage.CACHING_CLOUD,
+            errorMessage = ""
+        )
+        quickStreamJob = viewModelScope.launch {
+            pollAndResolveQuickStream(maxWaitSec = 90)
+        }
+    }
+
+    fun retryQuickStream() {
+        val cur = quickStreamState ?: return
+        startQuickStream(TorrentItem(title = cur.torrentTitle, magnet = cur.magnet, hash = ""))
+    }
+
+    fun dismissQuickStream(notifyBackground: Boolean = false) {
+        val wasCaching = quickStreamState?.stage == QuickStreamStage.CACHING_CLOUD ||
+            quickStreamState?.stage == QuickStreamStage.SENDING_MAGNET
+        quickStreamJob?.cancel()
+        quickStreamJob = null
+        quickStreamState = null
+        refreshPikPakTasks()
+        if (notifyBackground && wasCaching) {
+            emitToast(str(R.string.toast_qs_background))
+        }
+    }
+
+    fun openPikPakTasksFromQuickStream() {
+        quickStreamJob?.cancel()
+        quickStreamJob = null
+        quickStreamState = null
+        currentTab = 3
+        pikpakSubTab = 1
+        refreshPikPakTasks()
+    }
+
+    fun playQuickStreamCandidate(videoItem: PikPakDriveItem) {
+        val cur = quickStreamState ?: return
+        if (cur.busyVideoId != null) return
+        viewModelScope.launch {
+            quickStreamState = quickStreamState?.copy(busyVideoId = videoItem.id)
+            try {
+                val streamUrl = fetchPikPakStreamLinkSuspend(videoItem)
+                _videoPlayFlow.tryEmit(VideoPlayEvent(streamUrl = streamUrl, videoTitle = videoItem.name))
+            } catch (e: Exception) {
+                emitToast("❌ ${e.message}")
+            } finally {
+                quickStreamState = quickStreamState?.copy(busyVideoId = null)
+            }
+        }
+    }
+
+    private suspend fun pollAndResolveQuickStream(maxWaitSec: Int) {
+        var windowWaitedSec = 0
+        while (true) {
+            val cur = quickStreamState ?: return
+            if (cur.phaseLabel == "ERROR") {
+                quickStreamState = cur.copy(
+                    stage = QuickStreamStage.ERROR,
+                    errorMessage = cur.errorMessage.ifBlank { "PikPak cloud task failed" }
+                )
+                return
+            }
+            if (cur.phaseLabel == "COMPLETE") {
+                break
+            }
+            if (windowWaitedSec >= maxWaitSec) {
+                quickStreamState = cur.copy(stage = QuickStreamStage.TIMEOUT)
+                refreshPikPakTasks()
+                return
+            }
+
+            delay(2000L)
+            windowWaitedSec += 2
+            val latestSnap = quickStreamState ?: return
+            val (polled, updatedCreds) = PikPakClient.pollOfflineTask(
+                taskId = latestSnap.taskId,
+                taskNameHint = latestSnap.taskName,
+                creds = pikpakCreds
+            )
+            updatedCreds?.let { savePikPakCreds(it) }
+
+            if (polled != null) {
+                quickStreamState = latestSnap.copy(
+                    stage = if (polled.phase == "COMPLETE") QuickStreamStage.RESOLVING_VIDEO else QuickStreamStage.CACHING_CLOUD,
+                    taskId = polled.id.ifBlank { latestSnap.taskId },
+                    fileId = polled.fileId.ifBlank { latestSnap.fileId },
+                    taskName = polled.name.ifBlank { latestSnap.taskName },
+                    phaseLabel = polled.phase.ifBlank { latestSnap.phaseLabel },
+                    progress = polled.progress,
+                    elapsedSec = latestSnap.elapsedSec + 2,
+                    errorMessage = polled.message
+                )
+            } else {
+                quickStreamState = latestSnap.copy(elapsedSec = latestSnap.elapsedSec + 2)
+            }
+        }
+
+        val completedSnap = quickStreamState ?: return
+        quickStreamState = completedSnap.copy(
+            stage = QuickStreamStage.RESOLVING_VIDEO,
+            progress = 100
+        )
+        refreshPikPakTasks()
+        if (currentPikPakFolderId == pikpakCreds.targetFolderId) {
+            loadPikPakDirectory(currentPikPakFolderId)
+        }
+
+        var videos = PikPakClient.resolveQuickStreamVideos(
+            fileId = completedSnap.fileId,
+            taskName = completedSnap.taskName,
+            creds = pikpakCreds
+        )
+        if (videos.isEmpty()) {
+            // Brief retry in case PikPak Drive index takes a moment after task completion
+            delay(1500L)
+            val (repolled, creds2) = PikPakClient.pollOfflineTask(
+                taskId = completedSnap.taskId,
+                taskNameHint = completedSnap.taskName,
+                creds = pikpakCreds
+            )
+            creds2?.let { savePikPakCreds(it) }
+            val resolvedFileId = repolled?.fileId?.ifBlank { completedSnap.fileId } ?: completedSnap.fileId
+            videos = PikPakClient.resolveQuickStreamVideos(
+                fileId = resolvedFileId,
+                taskName = repolled?.name?.ifBlank { completedSnap.taskName } ?: completedSnap.taskName,
+                creds = pikpakCreds
+            )
+        }
+
+        val mainVideos = PikPakClient.filterSignificantVideos(videos)
+        if (mainVideos.isEmpty()) {
+            quickStreamState = quickStreamState?.copy(
+                stage = QuickStreamStage.ERROR,
+                errorMessage = str(R.string.qs_error_no_video)
+            )
+            return
+        }
+
+        if (mainVideos.size == 1) {
+            val targetVideo = mainVideos.first()
+            quickStreamState = quickStreamState?.copy(stage = QuickStreamStage.LAUNCHING_PLAYER)
+            try {
+                val streamUrl = try {
+                    fetchPikPakStreamLinkSuspend(targetVideo)
+                } catch (_: Exception) {
+                    delay(1200L)
+                    fetchPikPakStreamLinkSuspend(targetVideo)
+                }
+                quickStreamState = null
+                _videoPlayFlow.tryEmit(VideoPlayEvent(streamUrl = streamUrl, videoTitle = targetVideo.name))
+            } catch (e: Exception) {
+                quickStreamState = quickStreamState?.copy(
+                    stage = QuickStreamStage.ERROR,
+                    errorMessage = e.message ?: "Failed to fetch stream URL"
+                )
+            }
+        } else {
+            quickStreamState = quickStreamState?.copy(
+                stage = QuickStreamStage.SELECT_VIDEO,
+                candidateVideos = mainVideos
+            )
+        }
     }
 
     fun searchSubtitleForPikPakVideo(videoItem: PikPakDriveItem) {
@@ -945,14 +1222,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun saveBrowserLastUrl(url: String) {
         if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
             browserCurrentUrl = url
-            prefs.edit().putString("browser_last_url", url).apply()
+            settings.setBrowserLastUrl(url)
         }
     }
 
     fun toggleBrowserAdShield(enabled: Boolean) {
         browserAdShieldEnabled = enabled
-        prefs.edit().putBoolean("browser_adshield", enabled).apply()
-        emitToast(if (enabled) "🛡️ Anti-Iklan & Blokir Pop-up: AKTIF" else "⚪ Anti-Iklan & Blokir Pop-up: NONAKTIF")
+        settings.setBrowserAdShieldEnabled(enabled)
+        emitToast(if (enabled) str(R.string.toast_adshield_on) else str(R.string.toast_adshield_off))
     }
 
     fun searchTorrentFromBrowser(rawQuery: String) {
@@ -974,7 +1251,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadBrowserBookmarks() {
         browserBookmarks.clear()
-        val raw = prefs.getString("browser_bookmarks_v1", null)
+        val raw = settings.browserBookmarksJson
         if (raw != null) {
             try {
                 val arr = JSONArray(raw)
@@ -1004,7 +1281,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         browserBookmarks.forEach { b ->
             arr.put(JSONObject().put("title", b.title).put("url", b.url))
         }
-        prefs.edit().putString("browser_bookmarks_v1", arr.toString()).apply()
+        settings.setBrowserBookmarksJson(arr.toString())
     }
 
     fun addBrowserBookmark(title: String, url: String) {
@@ -1012,12 +1289,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (cleanUrl.isBlank()) return
         val cleanTitle = title.trim().ifBlank { cleanUrl }
         if (browserBookmarks.any { it.url.equals(cleanUrl, ignoreCase = true) }) {
-            emitToast("⭐ Halaman ini sudah ada di Bookmark.")
+            emitToast(str(R.string.toast_bookmark_exists))
             return
         }
         browserBookmarks.add(0, BrowserBookmark(cleanTitle, cleanUrl))
         saveBrowserBookmarks()
-        emitToast("⭐ Ditambahkan ke Bookmark: $cleanTitle")
+        emitToast(str(R.string.toast_bookmark_added, cleanTitle))
     }
 
     fun removeBrowserBookmark(url: String) {
@@ -1031,31 +1308,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun installOrUpdateUserscript(rawCode: String, sourceUrl: String = "") {
-        if (rawCode.isBlank()) {
-            emitToast("Kode script kosong.")
-            return
-        }
+        if (rawCode.isBlank()) return
         val item = UserscriptManager.installOrUpdateScript(getApplication(), rawCode, sourceUrl)
         reloadInstalledUserscripts()
         userscriptRevision++
-        emitToast("🧩 Userscript terpasang: ${item.name} (v${item.version}) — Muat ulang halaman untuk menerapkan.")
+        emitToast(str(R.string.toast_script_installed, item.name, item.version))
     }
 
     fun installUserscriptFromUrl(url: String, onDone: (() -> Unit)? = null) {
         val cleanUrl = url.trim()
         if (!cleanUrl.startsWith("http://", ignoreCase = true) && !cleanUrl.startsWith("https://", ignoreCase = true)) {
-            emitToast("Masukkan URL lengkap (https://...)")
+            emitToast("https://...")
             return
         }
         viewModelScope.launch {
-            emitToast("⏳ Mengunduh script dari URL…")
+            emitToast(str(R.string.toast_checking_script))
             try {
-                val code = com.torrenthub.aio.network.HttpClient.getString(cleanUrl, timeoutSec = 25L)
-                if (code.isBlank()) throw Exception("Isi script kosong")
+                val code = HttpClient.getString(cleanUrl, timeoutSec = 25L)
+                if (code.isBlank()) throw Exception("Empty script")
                 installOrUpdateUserscript(code, cleanUrl)
                 onDone?.invoke()
             } catch (e: Exception) {
-                emitToast("❌ Gagal mengunduh script: ${e.message}")
+                emitToast(str(R.string.toast_download_failed, e.message ?: "Error"))
             }
         }
     }
@@ -1072,6 +1346,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         installedUserscripts.clear()
         installedUserscripts.addAll(next)
         userscriptRevision++
-        emitToast("🗑️ Userscript dihapus.")
+        emitToast(str(R.string.toast_script_deleted))
     }
 }

@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        val cleaned = keystorePropertiesFile.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+        load(cleaned.reader())
+    }
 }
 
 android {
@@ -12,19 +22,34 @@ android {
         applicationId = "com.torrenthub.aio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4.0-dev"
+        versionCode = 6
+        versionName = "1.4.0"
 
         vectorDrawables {
             useSupportLibrary = true
         }
     }
 
+    signingConfigs {
+        val storePath = keystoreProperties.getProperty("storeFile")
+        if (!storePath.isNullOrBlank() && rootProject.file(storePath).exists()) {
+            create("release") {
+                storeFile = rootProject.file(storePath)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
-            // Signed with debug config out-of-the-box so the release APK is also directly installable on user's phone
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

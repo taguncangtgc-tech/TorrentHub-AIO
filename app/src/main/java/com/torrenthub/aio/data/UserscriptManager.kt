@@ -518,7 +518,7 @@ object UserscriptManager {
 
                     const GM_info = {
                         scriptHandler: 'TorrentHub Tampermonkey',
-                        version: '1.2.0',
+                        version: '1.4.0',
                         script: meta
                     };
 

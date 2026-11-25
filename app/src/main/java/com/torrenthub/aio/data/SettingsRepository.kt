@@ -817,7 +817,7 @@ class SettingsRepository private constructor(context: Context) {
         val root = JSONObject()
             .put("backupApp", "TorrentHub-AIO")
             .put("schemaVersion", 1)
-            .put("appVersion", "1.4.0-dev")
+            .put("appVersion", "1.4.0")
             .put("exportedAtMs", System.currentTimeMillis())
             .put("includesSensitiveKeys", includeSensitiveKeys)
             .put("general", generalObj)

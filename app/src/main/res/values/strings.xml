@@ -57,7 +57,7 @@
     <string name="theme_amoled">AMOLED Black</string>
     <string name="theme_amoled_desc">Hitam pekat #000000 hemat baterai</string>
 
-    <string name="settings_section_browser">🧭 Navigasi Browser</string>
+    <string name="settings_section_browser">🧭 Browser, Ad-Blocker &amp; Navigasi</string>
     <string name="settings_browser_swipe">Swipe Pindah Tab di Browser</string>
     <string name="settings_browser_swipe_desc">Izinkan geser kiri/kanan untuk pindah tab saat berada di halaman Browser</string>
 
@@ -409,4 +409,114 @@
     <string name="toast_autopair_video_set">🎬 Video target dipilih: %1$s</string>
     <string name="toast_autopair_saved">✅ Subtitle disimpan sesuai nama video: %1$s</string>
     <string name="toast_enter_provider_api_key">Masukkan API Key %1$s terlebih dahulu (atau gunakan Google Translate Gratis).</string>
+
+    <!-- Phase 4: Ad-Blocker, Internal Download Manager, Custom Trackers & RSS Monitor -->
+    <string name="cd_downloads">Unduhan</string>
+    <string name="settings_adblock_enable">Ad-Blocker &amp; Anti-Popup Browser</string>
+    <string name="settings_adblock_enable_desc">Blokir domain iklan, pelacak, dan popup jendela baru yang mengganggu di WebView</string>
+    <string name="settings_antipopup_strict">Blokir Ketat Redirect &amp; Popup Lintas-Domain</string>
+    <string name="settings_antipopup_strict_desc">Cegah tab baru atau redirect otomatis tanpa izin ke domain iklan eksternal</string>
+    <string name="settings_adblock_stats">🛡️ Total iklan &amp; popup diblokir: %1$d</string>
+    <string name="settings_adblock_reset">Reset Angka</string>
+    <string name="browser_adblock_badge_on">🛡️ %1$d</string>
+    <string name="browser_adblock_badge_off">🛡️ OFF</string>
+    <string name="browser_btn_downloads">📥 %1$d</string>
+    <string name="browser_btn_downloads_idle">📥</string>
+
+    <string name="dl_notif_channel_name">Unduhan File &amp; Subtitle</string>
+    <string name="dl_notif_channel_desc">Menampilkan progres dan status selesai unduhan Browser &amp; Subtitle</string>
+    <string name="dl_notif_progress_title">⬇️ %1$s (%2$d%%)</string>
+    <string name="dl_notif_progress_indeterminate">⬇️ Mengunduh %1$s…</string>
+    <string name="dl_notif_done_title">✅ Unduhan Selesai</string>
+    <string name="dl_notif_failed_title">❌ Unduhan Gagal</string>
+    <string name="dl_title">📥 Download Manager Internal</string>
+    <string name="dl_subtitle">Riwayat unduhan file Browser &amp; Subtitle terintegrasi sistem notifikasi</string>
+    <string name="dl_filter_all">Semua (%1$d)</string>
+    <string name="dl_filter_active">Aktif (%1$d)</string>
+    <string name="dl_filter_completed">Selesai (%1$d)</string>
+    <string name="dl_btn_clear_done">Bersihkan Selesai</string>
+    <string name="dl_empty_state">Belum ada riwayat unduhan dari Browser atau Subtitle.</string>
+    <string name="dl_cat_browser">🌐 Browser</string>
+    <string name="dl_cat_subtitle">💬 Subtitle</string>
+    <string name="dl_cat_torrent">🧲 Torrent</string>
+    <string name="dl_state_queued">⏳ Dalam antrean…</string>
+    <string name="dl_state_downloading">⬇️ Mengunduh %1$d%%</string>
+    <string name="dl_state_completed">✅ Selesai</string>
+    <string name="dl_state_failed">❌ Gagal: %1$s</string>
+    <string name="dl_state_cancelled">⚪ Dibatalkan</string>
+    <string name="dl_btn_open">Buka File</string>
+    <string name="dl_btn_cancel">⏹️ Batal</string>
+    <string name="dl_btn_retry">Ulangi</string>
+    <string name="dl_btn_delete">Hapus</string>
+    <string name="dl_btn_send_gemini">✨ Gemini</string>
+    <string name="sub_btn_download_mgr">⬇️ Unduh</string>
+    <string name="chooser_open_file">Buka file dengan…</string>
+    <string name="toast_dl_started">⬇️ Mengunduh: %1$s</string>
+    <string name="toast_dl_completed">✅ Unduhan selesai: %1$s</string>
+    <string name="toast_dl_failed">❌ Gagal mengunduh %1$s: %2$s</string>
+    <string name="toast_dl_deleted">🗑️ Riwayat &amp; file dihapus: %1$s</string>
+    <string name="toast_dl_cleared">🧹 Riwayat unduhan selesai dibersihkan.</string>
+    <string name="toast_dl_file_missing">⚠️ File lokal tidak ditemukan di penyimpanan.</string>
+    <string name="toast_dl_no_app">⚠️ Tidak ada aplikasi pendukung untuk membuka tipe file ini.</string>
+
+    <string name="settings_section_trackers">🧲 Custom Tracker List Otomatis</string>
+    <string name="settings_trackers_desc">Tambahkan daftar public trackers &amp; tracker kustom secara otomatis ke setiap magnet link sebelum disalin, dibuka, atau dikirim ke PikPak</string>
+    <string name="settings_trackers_enable">Aktifkan Penambahan Tracker Otomatis</string>
+    <string name="settings_trackers_enable_desc">Aktif saat ini: %1$d tracker unik siap ditambahkan</string>
+    <string name="settings_trackers_url_label">URL Pembaruan Daftar Public Trackers</string>
+    <string name="settings_trackers_btn_update">🔄 Perbarui dari URL</string>
+    <string name="settings_trackers_updating">⏳ Memperbarui…</string>
+    <string name="settings_trackers_last_updated">Terakhir diperbarui: %1$s (%2$d tracker)</string>
+    <string name="settings_trackers_never_updated">Menggunakan daftar bawaan (%1$d public tracker)</string>
+    <string name="settings_trackers_custom_label">Daftar Tracker Kustom Pengguna (1 per baris)</string>
+    <string name="settings_trackers_custom_placeholder">udp://tracker.example.com:1337/announce\nhttps://tracker.example.org/announce</string>
+    <string name="toast_trackers_updated">✅ Berhasil memperbarui %1$d public tracker!</string>
+    <string name="toast_trackers_update_failed">❌ Gagal memperbarui tracker: %1$s</string>
+    <string name="toast_trackers_reset">🔄 Pengaturan tracker dikembalikan ke bawaan.</string>
+
+    <string name="magnet_builder_chip">🧲 Magnet Builder</string>
+    <string name="magnet_builder_title">🧲 Magnet Builder &amp; Injeksi Tracker</string>
+    <string name="magnet_builder_desc">Masukkan InfoHash (40-hex / 32-Base32) atau magnet mentah untuk merakit magnet link lengkap dengan %1$d tracker aktif.</string>
+    <string name="magnet_builder_hash_label">InfoHash / BTIH atau Tautan Magnet</string>
+    <string name="magnet_builder_hash_placeholder">Mis: a1b2c3d4… atau magnet:?xt=urn:btih:…</string>
+    <string name="magnet_builder_name_label">Nama Rilis / Judul (Opsional)</string>
+    <string name="magnet_builder_preview_label">Pratinjau Magnet (%1$d tracker):</string>
+    <string name="magnet_builder_invalid">Masukkan InfoHash 40 karakter hex / 32 karakter Base32 atau magnet link yang valid.</string>
+
+    <string name="torrent_mode_search">🔍 Pencarian (16 Situs)</string>
+    <string name="torrent_mode_rss">📡 RSS Monitor</string>
+    <string name="rss_btn_manage_feeds">Sumber RSS (%1$d)</string>
+    <string name="rss_btn_keywords">🎯 Kata Kunci (%1$d)</string>
+    <string name="rss_btn_refresh">Segarkan</string>
+    <string name="rss_filter_all">Semua Rilis (%1$d)</string>
+    <string name="rss_filter_matched">🎯 Cocok (%1$d)</string>
+    <string name="rss_search_placeholder">Filter judul rilis RSS…</string>
+    <string name="rss_empty_no_feeds">Tambahkan atau aktifkan sumber RSS feed torrent lalu ketuk Segarkan.</string>
+    <string name="rss_empty_loading">⏳ Memuat rilis terbaru dari RSS feed aktif…</string>
+    <string name="rss_empty_no_match">Belum ada item RSS yang cocok dengan filter / kata kunci saat ini.</string>
+    <string name="rss_match_badge">🎯 Cocok: %1$s</string>
+    <string name="rss_btn_copy_magnet">📋 Salin Magnet</string>
+    <string name="rss_btn_quick_stream">⚡ Quick Stream</string>
+    <string name="rss_btn_download_sub">💬 Unduh Subtitle</string>
+    <string name="rss_btn_dl_torrent">⬇️ File .torrent</string>
+    <string name="rss_feeds_dialog_title">📡 Kelola Sumber RSS Feed Torrent</string>
+    <string name="rss_feeds_name_label">Nama Situs / Label (Opsional)</string>
+    <string name="rss_feeds_url_label">URL RSS / Atom XML</string>
+    <string name="rss_feeds_btn_add">➕ Tambah Feed</string>
+    <string name="rss_feeds_presets_label">Preset Cepat (Ketuk untuk Tambah):</string>
+    <string name="rss_keywords_dialog_title">🎯 Kata Kunci Pantauan (Auto-Match)</string>
+    <string name="rss_keywords_desc">Rilis RSS yang mengandung salah satu kata kunci atau kode di bawah akan ditandai otomatis.</string>
+    <string name="rss_keywords_input_placeholder">Mis: 1080p, One Piece, IPX, HEVC…</string>
+    <string name="rss_keywords_btn_add">Tambah</string>
+    <string name="rss_keywords_empty">Belum ada kata kunci pantauan. Tambahkan kata kunci di atas!</string>
+    <string name="rss_sub_dialog_title">💬 Unduh Subtitle Cepat: %1$s</string>
+    <string name="rss_sub_dialog_searching">⏳ Mencari subtitle yang cocok untuk \"%1$s\"…</string>
+    <string name="rss_sub_dialog_empty">Tidak ditemukan subtitle instan untuk \"%1$s\".</string>
+    <string name="rss_sub_btn_download_now">⬇️ Unduh</string>
+    <string name="rss_sub_btn_open_tab">🔍 Buka di Tab Subtitle</string>
+    <string name="toast_rss_feed_added">📡 RSS feed ditambahkan: %1$s</string>
+    <string name="toast_rss_feed_exists">⚠️ URL RSS feed tersebut sudah terdaftar.</string>
+    <string name="toast_rss_invalid_url">⚠️ Masukkan URL RSS http:// atau https:// yang valid.</string>
+    <string name="toast_rss_refreshed">📡 Memuat %1$d rilis RSS (%2$d cocok kata kunci)!</string>
+    <string name="toast_rss_keyword_added">🎯 Kata kunci pantauan ditambahkan: %1$s</string>
 </resources>

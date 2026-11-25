@@ -417,7 +417,10 @@ fun SubtitleScreen(vm: AppViewModel) {
                                     color = if (item.sizeBytes > 0L) p.accentBlue else p.textMuted
                                 )
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
                                     SubBtn(stringResource(R.string.sub_btn_gemini), Color(0xFF7C3AED)) {
                                         vm.sendSubtitleItemToGemini(item)
                                     }
@@ -437,6 +440,9 @@ fun SubtitleScreen(vm: AppViewModel) {
                                                 vm.emitToast(vm.str(R.string.toast_preview_failed, e.message ?: "Error"))
                                             }
                                         }
+                                    }
+                                    SubBtn(stringResource(R.string.sub_btn_download_mgr), Color(0xFF0284C7)) {
+                                        vm.downloadSubtitleViaManager(item.name, item.url)
                                     }
                                     SubBtn(stringResource(R.string.sub_btn_save), Color(0xFF059669)) {
                                         scope.launch {

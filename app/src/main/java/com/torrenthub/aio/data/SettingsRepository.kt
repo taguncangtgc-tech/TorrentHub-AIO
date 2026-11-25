@@ -422,6 +422,12 @@ class SettingsRepository private constructor(context: Context) {
     val browserAdShieldEnabled: Boolean
         get() = current[Keys.BROWSER_ADSHIELD] ?: true
 
+    val browserAntiPopupStrict: Boolean
+        get() = current[Keys.BROWSER_ANTIPOPUP] ?: true
+
+    val browserBlockedAdsTotal: Long
+        get() = current[Keys.BROWSER_BLOCKED_ADS_TOTAL] ?: 0L
+
     val browserBookmarksJson: String?
         get() = current[Keys.BROWSER_BOOKMARKS_V1]
 
@@ -437,9 +443,92 @@ class SettingsRepository private constructor(context: Context) {
         }
     }
 
+    fun setBrowserAntiPopupStrict(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.BROWSER_ANTIPOPUP] = enabled }
+        }
+    }
+
+    fun setBrowserBlockedAdsTotal(count: Long) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.BROWSER_BLOCKED_ADS_TOTAL] = count.coerceAtLeast(0L) }
+        }
+    }
+
     fun setBrowserBookmarksJson(json: String) {
         repoScope.launch {
             dataStore.edit { it[Keys.BROWSER_BOOKMARKS_V1] = json }
+        }
+    }
+
+    /* ================= PHASE 4: DOWNLOAD MANAGER, TRACKERS & RSS MONITOR ================= */
+    val downloadHistoryJson: String?
+        get() = current[Keys.DOWNLOAD_HISTORY_V1]
+
+    fun setDownloadHistoryJson(json: String) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.DOWNLOAD_HISTORY_V1] = json }
+        }
+    }
+
+    val autoAppendTrackers: Boolean
+        get() = current[Keys.TRACKER_AUTO_APPEND] ?: true
+
+    val trackerSourceUrl: String
+        get() = current[Keys.TRACKER_SOURCE_URL]
+            ?: "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
+
+    val fetchedTrackersRaw: String
+        get() = current[Keys.TRACKER_FETCHED_RAW] ?: ""
+
+    val customTrackersRaw: String
+        get() = current[Keys.TRACKER_CUSTOM_RAW] ?: ""
+
+    val trackerLastUpdatedMs: Long
+        get() = current[Keys.TRACKER_LAST_UPDATED_MS] ?: 0L
+
+    fun setAutoAppendTrackers(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.TRACKER_AUTO_APPEND] = enabled }
+        }
+    }
+
+    fun setTrackerSourceUrl(url: String) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.TRACKER_SOURCE_URL] = url.trim() }
+        }
+    }
+
+    fun saveFetchedTrackers(raw: String, updatedAtMs: Long) {
+        repoScope.launch {
+            dataStore.edit { prefs ->
+                prefs[Keys.TRACKER_FETCHED_RAW] = raw.trim()
+                prefs[Keys.TRACKER_LAST_UPDATED_MS] = updatedAtMs
+            }
+        }
+    }
+
+    fun setCustomTrackersRaw(raw: String) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.TRACKER_CUSTOM_RAW] = raw }
+        }
+    }
+
+    val rssFeedsJson: String?
+        get() = current[Keys.RSS_FEEDS_V1]
+
+    val rssWatchKeywordsJson: String?
+        get() = current[Keys.RSS_KEYWORDS_V1]
+
+    fun setRssFeedsJson(json: String) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.RSS_FEEDS_V1] = json }
+        }
+    }
+
+    fun setRssWatchKeywordsJson(json: String) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.RSS_KEYWORDS_V1] = json }
         }
     }
 
@@ -482,7 +571,18 @@ class SettingsRepository private constructor(context: Context) {
 
         val BROWSER_LAST_URL = stringPreferencesKey("browser_last_url")
         val BROWSER_ADSHIELD = booleanPreferencesKey("browser_adshield")
+        val BROWSER_ANTIPOPUP = booleanPreferencesKey("browser_antipopup")
+        val BROWSER_BLOCKED_ADS_TOTAL = longPreferencesKey("browser_blocked_ads_total")
         val BROWSER_BOOKMARKS_V1 = stringPreferencesKey("browser_bookmarks_v1")
+
+        val DOWNLOAD_HISTORY_V1 = stringPreferencesKey("download_history_v1")
+        val TRACKER_AUTO_APPEND = booleanPreferencesKey("tracker_auto_append")
+        val TRACKER_SOURCE_URL = stringPreferencesKey("tracker_source_url")
+        val TRACKER_FETCHED_RAW = stringPreferencesKey("tracker_fetched_raw")
+        val TRACKER_CUSTOM_RAW = stringPreferencesKey("tracker_custom_raw")
+        val TRACKER_LAST_UPDATED_MS = longPreferencesKey("tracker_last_updated_ms")
+        val RSS_FEEDS_V1 = stringPreferencesKey("rss_feeds_v1")
+        val RSS_KEYWORDS_V1 = stringPreferencesKey("rss_keywords_v1")
 
         val SUB_PROVIDER = stringPreferencesKey("sub_provider")
         val SUB_AUTO_PAIR = booleanPreferencesKey("sub_auto_pair")

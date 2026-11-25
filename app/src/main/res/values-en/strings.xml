@@ -57,7 +57,7 @@
     <string name="theme_amoled">AMOLED Black</string>
     <string name="theme_amoled_desc">True #000000 battery-saving black</string>
 
-    <string name="settings_section_browser">🧭 Browser Navigation</string>
+    <string name="settings_section_browser">🧭 Browser, Ad-Blocker &amp; Navigation</string>
     <string name="settings_browser_swipe">Swipe to Switch Tabs in Browser</string>
     <string name="settings_browser_swipe_desc">Allow horizontal swipe gestures to switch tabs while inside the Browser page</string>
 
@@ -409,4 +409,114 @@
     <string name="toast_autopair_video_set">🎬 Target video selected: %1$s</string>
     <string name="toast_autopair_saved">✅ Auto-paired &amp; saved as: %1$s</string>
     <string name="toast_enter_provider_api_key">Please enter your %1$s API key first (or switch to Free Google Translate).</string>
+
+    <!-- Phase 4: Ad-Blocker, Internal Download Manager, Custom Trackers & RSS Monitor -->
+    <string name="cd_downloads">Downloads</string>
+    <string name="settings_adblock_enable">Browser Ad-Blocker &amp; Anti-Popup</string>
+    <string name="settings_adblock_enable_desc">Block ad domains, trackers, and unwanted new-window popups inside the WebView Browser</string>
+    <string name="settings_antipopup_strict">Strict Cross-Domain Popup &amp; Redirect Guard</string>
+    <string name="settings_antipopup_strict_desc">Prevent unsolicited new tabs and automatic redirects to external ad networks</string>
+    <string name="settings_adblock_stats">🛡️ Total ads &amp; popups blocked: %1$d</string>
+    <string name="settings_adblock_reset">Reset Count</string>
+    <string name="browser_adblock_badge_on">🛡️ %1$d</string>
+    <string name="browser_adblock_badge_off">🛡️ OFF</string>
+    <string name="browser_btn_downloads">📥 %1$d</string>
+    <string name="browser_btn_downloads_idle">📥</string>
+
+    <string name="dl_notif_channel_name">File &amp; Subtitle Downloads</string>
+    <string name="dl_notif_channel_desc">Shows progress and completion notifications for Browser &amp; Subtitle downloads</string>
+    <string name="dl_notif_progress_title">⬇️ %1$s (%2$d%%)</string>
+    <string name="dl_notif_progress_indeterminate">⬇️ Downloading %1$s…</string>
+    <string name="dl_notif_done_title">✅ Download Complete</string>
+    <string name="dl_notif_failed_title">❌ Download Failed</string>
+    <string name="dl_title">📥 Internal Download Manager</string>
+    <string name="dl_subtitle">Browser &amp; Subtitle download history integrated with Android notifications</string>
+    <string name="dl_filter_all">All (%1$d)</string>
+    <string name="dl_filter_active">Active (%1$d)</string>
+    <string name="dl_filter_completed">Completed (%1$d)</string>
+    <string name="dl_btn_clear_done">Clear Finished</string>
+    <string name="dl_empty_state">No download history from Browser or Subtitles yet.</string>
+    <string name="dl_cat_browser">🌐 Browser</string>
+    <string name="dl_cat_subtitle">💬 Subtitle</string>
+    <string name="dl_cat_torrent">🧲 Torrent</string>
+    <string name="dl_state_queued">⏳ Queued…</string>
+    <string name="dl_state_downloading">⬇️ Downloading %1$d%%</string>
+    <string name="dl_state_completed">✅ Completed</string>
+    <string name="dl_state_failed">❌ Failed: %1$s</string>
+    <string name="dl_state_cancelled">⚪ Cancelled</string>
+    <string name="dl_btn_open">Open File</string>
+    <string name="dl_btn_cancel">⏹️ Cancel</string>
+    <string name="dl_btn_retry">Retry</string>
+    <string name="dl_btn_delete">Delete</string>
+    <string name="dl_btn_send_gemini">✨ Gemini</string>
+    <string name="sub_btn_download_mgr">⬇️ Download</string>
+    <string name="chooser_open_file">Open file with…</string>
+    <string name="toast_dl_started">⬇️ Downloading: %1$s</string>
+    <string name="toast_dl_completed">✅ Download complete: %1$s</string>
+    <string name="toast_dl_failed">❌ Download failed (%1$s): %2$s</string>
+    <string name="toast_dl_deleted">🗑️ Removed from history &amp; disk: %1$s</string>
+    <string name="toast_dl_cleared">🧹 Finished download history cleared.</string>
+    <string name="toast_dl_file_missing">⚠️ Local file was not found on storage.</string>
+    <string name="toast_dl_no_app">⚠️ No app installed to open this file type.</string>
+
+    <string name="settings_section_trackers">🧲 Auto-Append Custom Tracker List</string>
+    <string name="settings_trackers_desc">Automatically append public trackers &amp; your custom tracker list to every magnet link before copying, opening, or sending to PikPak</string>
+    <string name="settings_trackers_enable">Enable Automatic Tracker Injection</string>
+    <string name="settings_trackers_enable_desc">Currently active: %1$d unique trackers ready</string>
+    <string name="settings_trackers_url_label">Public Trackers Update URL</string>
+    <string name="settings_trackers_btn_update">🔄 Update from URL</string>
+    <string name="settings_trackers_updating">⏳ Updating…</string>
+    <string name="settings_trackers_last_updated">Last updated: %1$s (%2$d trackers)</string>
+    <string name="settings_trackers_never_updated">Using built-in list (%1$d public trackers)</string>
+    <string name="settings_trackers_custom_label">Custom User Trackers (1 per line)</string>
+    <string name="settings_trackers_custom_placeholder">udp://tracker.example.com:1337/announce\nhttps://tracker.example.org/announce</string>
+    <string name="toast_trackers_updated">✅ Updated %1$d public trackers!</string>
+    <string name="toast_trackers_update_failed">❌ Tracker update failed: %1$s</string>
+    <string name="toast_trackers_reset">🔄 Tracker list reset to built-in defaults.</string>
+
+    <string name="magnet_builder_chip">🧲 Magnet Builder</string>
+    <string name="magnet_builder_title">🧲 Magnet Builder &amp; Tracker Injector</string>
+    <string name="magnet_builder_desc">Paste an InfoHash (40-hex / 32-Base32) or raw magnet link to build a magnet enriched with %1$d active trackers.</string>
+    <string name="magnet_builder_hash_label">InfoHash / BTIH or Magnet Link</string>
+    <string name="magnet_builder_hash_placeholder">e.g. a1b2c3d4… or magnet:?xt=urn:btih:…</string>
+    <string name="magnet_builder_name_label">Release Name / Title (Optional)</string>
+    <string name="magnet_builder_preview_label">Magnet Preview (%1$d trackers):</string>
+    <string name="magnet_builder_invalid">Enter a valid 40-char hex / 32-char Base32 InfoHash or magnet link.</string>
+
+    <string name="torrent_mode_search">🔍 Search (16 Sites)</string>
+    <string name="torrent_mode_rss">📡 RSS Monitor</string>
+    <string name="rss_btn_manage_feeds">RSS Feeds (%1$d)</string>
+    <string name="rss_btn_keywords">🎯 Keywords (%1$d)</string>
+    <string name="rss_btn_refresh">Refresh</string>
+    <string name="rss_filter_all">All Releases (%1$d)</string>
+    <string name="rss_filter_matched">🎯 Matched (%1$d)</string>
+    <string name="rss_search_placeholder">Filter RSS release titles…</string>
+    <string name="rss_empty_no_feeds">Add or enable a torrent RSS feed URL, then tap Refresh.</string>
+    <string name="rss_empty_loading">⏳ Loading latest releases from active RSS feeds…</string>
+    <string name="rss_empty_no_match">No RSS items match your current filter / watch keywords.</string>
+    <string name="rss_match_badge">🎯 Match: %1$s</string>
+    <string name="rss_btn_copy_magnet">📋 Copy Magnet</string>
+    <string name="rss_btn_quick_stream">⚡ Quick Stream</string>
+    <string name="rss_btn_download_sub">💬 Download Subtitle</string>
+    <string name="rss_btn_dl_torrent">⬇️ .torrent File</string>
+    <string name="rss_feeds_dialog_title">📡 Manage Torrent RSS Feeds</string>
+    <string name="rss_feeds_name_label">Site Name / Label (Optional)</string>
+    <string name="rss_feeds_url_label">RSS / Atom XML URL</string>
+    <string name="rss_feeds_btn_add">➕ Add Feed</string>
+    <string name="rss_feeds_presets_label">Quick Presets (Tap to Add):</string>
+    <string name="rss_keywords_dialog_title">🎯 Watch Keywords (Auto-Match)</string>
+    <string name="rss_keywords_desc">RSS releases matching any keyword or code below will be highlighted automatically.</string>
+    <string name="rss_keywords_input_placeholder">e.g. 1080p, One Piece, IPX, HEVC…</string>
+    <string name="rss_keywords_btn_add">Add</string>
+    <string name="rss_keywords_empty">No watch keywords yet. Add keywords above!</string>
+    <string name="rss_sub_dialog_title">💬 Quick Subtitle Download: %1$s</string>
+    <string name="rss_sub_dialog_searching">⏳ Searching matching subtitles for \"%1$s\"…</string>
+    <string name="rss_sub_dialog_empty">No instant subtitles found for \"%1$s\".</string>
+    <string name="rss_sub_btn_download_now">⬇️ Download</string>
+    <string name="rss_sub_btn_open_tab">🔍 Open in Subtitle Tab</string>
+    <string name="toast_rss_feed_added">📡 RSS feed added: %1$s</string>
+    <string name="toast_rss_feed_exists">⚠️ That RSS feed URL is already registered.</string>
+    <string name="toast_rss_invalid_url">⚠️ Please enter a valid http:// or https:// RSS URL.</string>
+    <string name="toast_rss_refreshed">📡 Loaded %1$d RSS items (%2$d keyword matches)!</string>
+    <string name="toast_rss_keyword_added">🎯 Watch keyword added: %1$s</string>
 </resources>

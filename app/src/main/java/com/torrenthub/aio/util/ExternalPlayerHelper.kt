@@ -31,7 +31,7 @@ object ExternalPlayerHelper {
      * Menampilkan Toast informatif jika belum ada aplikasi pendukung magnet yang terpasang.
      */
     fun streamMagnetWithChooser(context: Context, magnet: String, vm: AppViewModel) {
-        val cleanMagnet = magnet.trim()
+        val cleanMagnet = vm.prepareMagnet(magnet)
         if (cleanMagnet.isEmpty()) return
 
         val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanMagnet))

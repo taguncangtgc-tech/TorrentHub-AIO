@@ -1,14 +1,21 @@
 package com.torrenthub.aio
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +31,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
@@ -57,6 +65,8 @@ import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.ui.*
 import com.torrenthub.aio.util.ExternalPlayerHelper
 import com.torrenthub.aio.util.LocaleHelper
+import com.torrenthub.aio.util.NotificationHelper
+import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
 
@@ -65,13 +75,32 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(LocaleHelper.wrapContext(newBase, langCode))
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(NotificationHelper.EXTRA_OPEN_DOWNLOADS, false)) {
+            val vm = ViewModelProvider(this)[AppViewModel::class.java]
+            vm.showDownloadManagerDialog = true
+            intent.removeExtra(NotificationHelper.EXTRA_OPEN_DOWNLOADS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Coil.setImageLoader(HttpClient.createImageLoader(applicationContext))
         enableEdgeToEdge()
+        val openDownloadsInitial = intent?.getBooleanExtra(NotificationHelper.EXTRA_OPEN_DOWNLOADS, false) == true
+        if (openDownloadsInitial) {
+            intent?.removeExtra(NotificationHelper.EXTRA_OPEN_DOWNLOADS)
+        }
         setContent {
             val activity = this@MainActivity
             val vm: AppViewModel = viewModel(viewModelStoreOwner = activity)
+            LaunchedEffect(openDownloadsInitial) {
+                if (openDownloadsInitial) {
+                    vm.showDownloadManagerDialog = true
+                }
+            }
             val localizedContext = remember(activity, vm.appLanguage) {
                 LocaleHelper.wrapActivityContext(activity, vm.appLanguage.code)
             }
@@ -106,6 +135,8 @@ private fun pageToTab(page: Int): Int = TAB_ORDER.getOrElse(page) { 0 }
 @Composable
 private fun PageWithHeader(
     title: String,
+    activeDownloadsCount: Int,
+    onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
     content: @Composable () -> Unit
 ) {
@@ -120,6 +151,23 @@ private fun PageWithHeader(
                 )
             },
             actions = {
+                IconButton(onClick = onOpenDownloads) {
+                    BadgedBox(
+                        badge = {
+                            if (activeDownloadsCount > 0) {
+                                Badge(containerColor = p.accentBlue) {
+                                    Text(activeDownloadsCount.toString(), color = Color.White)
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = stringResource(R.string.cd_downloads),
+                            tint = if (activeDownloadsCount > 0) p.accentBlue else p.textPrimary
+                        )
+                    }
+                }
                 IconButton(onClick = onOpenSettings) {
                     Icon(
                         imageVector = Icons.Default.Settings,
@@ -221,7 +269,25 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
         vm.currentTab = 0
     }
 
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                runCatching { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+            }
+        }
+    }
+
     val openSettings = { vm.showSettingsDialog = true }
+    val openDownloads = { vm.showDownloadManagerDialog = true }
+    val activeDlCount = vm.activeDownloadsCount
 
     Scaffold(
         containerColor = p.background,
@@ -310,6 +376,8 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
             when (pageToTab(page)) {
                 0 -> PageWithHeader(
                     title = stringResource(R.string.header_torrent),
+                    activeDownloadsCount = activeDlCount,
+                    onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     TorrentScreen(vm)
@@ -327,18 +395,24 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
                 }
                 1 -> PageWithHeader(
                     title = stringResource(R.string.header_subtitle),
+                    activeDownloadsCount = activeDlCount,
+                    onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     SubtitleScreen(vm)
                 }
                 2 -> PageWithHeader(
                     title = stringResource(R.string.header_gemini),
+                    activeDownloadsCount = activeDlCount,
+                    onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     GeminiScreen(vm)
                 }
                 3 -> PageWithHeader(
                     title = stringResource(R.string.header_pikpak),
+                    activeDownloadsCount = activeDlCount,
+                    onOpenDownloads = openDownloads,
                     onOpenSettings = openSettings
                 ) {
                     PikPakScreen(vm = vm, isActive = vm.currentTab == 3)
@@ -351,6 +425,13 @@ fun MainAppShell(vm: AppViewModel = viewModel()) {
         SettingsDialog(
             vm = vm,
             onDismiss = { vm.showSettingsDialog = false }
+        )
+    }
+
+    if (vm.showDownloadManagerDialog) {
+        DownloadManagerDialog(
+            vm = vm,
+            onDismiss = { vm.showDownloadManagerDialog = false }
         )
     }
 }

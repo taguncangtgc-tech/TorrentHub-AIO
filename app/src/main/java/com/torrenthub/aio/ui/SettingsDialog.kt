@@ -39,6 +39,8 @@ import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.AppThemeMode
 import com.torrenthub.aio.data.GeminiEngine
 import com.torrenthub.aio.model.TranslationProvider
+import com.torrenthub.aio.util.Formatters
+import com.torrenthub.aio.util.TrackerManager
 
 @Composable
 fun languageDisplayLabel(lang: AppLanguage): String = when (lang) {
@@ -639,7 +641,7 @@ fun SettingsDialog(
                         }
                     }
 
-                    // Section 5: Browser Swipe Navigation Control
+                    // Section 5: Browser Ad-Blocker, Anti-Popup & Swipe Control
                     Surface(
                         color = p.cardSurface,
                         shape = RoundedCornerShape(12.dp),
@@ -648,7 +650,7 @@ fun SettingsDialog(
                     ) {
                         Column(
                             modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
                                 text = stringResource(R.string.settings_section_browser),
@@ -656,6 +658,110 @@ fun SettingsDialog(
                                 fontSize = 14.sp,
                                 color = p.accentBlue
                             )
+
+                            // Ad-Blocker Toggle
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.toggleBrowserAdShield(!vm.browserAdShieldEnabled) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_adblock_enable),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_adblock_enable_desc),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.browserAdShieldEnabled,
+                                    onCheckedChange = { vm.toggleBrowserAdShield(it) }
+                                )
+                            }
+
+                            if (vm.browserAdShieldEnabled) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { vm.updateBrowserAntiPopupStrict(!vm.browserAntiPopupStrict) }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.settings_antipopup_strict),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = p.textPrimary
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.settings_antipopup_strict_desc),
+                                            fontSize = 11.5.sp,
+                                            color = p.textMuted
+                                        )
+                                    }
+                                    Switch(
+                                        checked = vm.browserAntiPopupStrict,
+                                        onCheckedChange = { vm.updateBrowserAntiPopupStrict(it) }
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                color = p.subCardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, p.borderColor),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_adblock_stats, vm.browserBlockedAdsCount),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = p.accentGreen,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (vm.browserBlockedAdsCount > 0) {
+                                        TextButton(
+                                            onClick = { vm.resetBlockedAdsCount() },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(stringResource(R.string.settings_adblock_reset), fontSize = 11.5.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = p.borderColor)
+
+                            // Swipe Navigation Toggle
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -687,6 +793,147 @@ fun SettingsDialog(
                                     checked = vm.browserTabSwipeEnabled,
                                     onCheckedChange = { vm.updateBrowserTabSwipe(it) }
                                 )
+                            }
+                        }
+                    }
+
+                    // Section 6: Custom Tracker List Otomatis
+                    val activeTrackerCount = vm.activeTrackersList.size
+                    val fetchedCount = remember(vm.fetchedTrackersRaw) {
+                        TrackerManager.parseTrackers(vm.fetchedTrackersRaw).size
+                    }
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_trackers),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_trackers_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.updateAutoAppendTrackers(!vm.autoAppendTrackers) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_trackers_enable),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_trackers_enable_desc, activeTrackerCount),
+                                        fontSize = 11.5.sp,
+                                        color = p.accentGreen
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.autoAppendTrackers,
+                                    onCheckedChange = { vm.updateAutoAppendTrackers(it) }
+                                )
+                            }
+
+                            OutlinedTextField(
+                                value = vm.trackerSourceUrl,
+                                onValueChange = { vm.updateTrackerSourceUrl(it) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.settings_trackers_url_label)) },
+                                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                            )
+
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                TrackerManager.PRESET_TRACKER_URLS.forEach { (lbl, presetUrl) ->
+                                    FilterChip(
+                                        selected = vm.trackerSourceUrl.trim() == presetUrl,
+                                        onClick = { vm.updateTrackerSourceUrl(presetUrl) },
+                                        label = { Text(lbl, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (vm.trackerLastUpdatedMs > 0L && fetchedCount > 0) {
+                                        stringResource(
+                                            R.string.settings_trackers_last_updated,
+                                            Formatters.formatDate(vm.trackerLastUpdatedMs),
+                                            fetchedCount
+                                        )
+                                    } else {
+                                        stringResource(
+                                            R.string.settings_trackers_never_updated,
+                                            TrackerManager.BUILTIN_PUBLIC_TRACKERS.size
+                                        )
+                                    },
+                                    fontSize = 11.sp,
+                                    color = p.textMuted,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Button(
+                                    onClick = { vm.refreshTrackersFromUrl() },
+                                    enabled = !vm.isUpdatingTrackers,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (vm.isUpdatingTrackers) stringResource(R.string.settings_trackers_updating)
+                                        else stringResource(R.string.settings_trackers_btn_update),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = vm.customTrackersRaw,
+                                onValueChange = { vm.updateCustomTrackers(it) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                                maxLines = 4,
+                                label = { Text(stringResource(R.string.settings_trackers_custom_label)) },
+                                placeholder = { Text(stringResource(R.string.settings_trackers_custom_placeholder), fontSize = 11.sp) },
+                                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(onClick = { vm.resetTrackersToDefault() }) {
+                                    Text(stringResource(R.string.common_reset), fontSize = 12.sp)
+                                }
                             }
                         }
                     }

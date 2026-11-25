@@ -57,7 +57,7 @@
     <string name="theme_amoled">AMOLED Black</string>
     <string name="theme_amoled_desc">완전한 블랙 #000000 배터리 절약</string>
 
-    <string name="settings_section_browser">🧭 브라우저 내비게이션</string>
+    <string name="settings_section_browser">🧭 브라우저, 광고 차단 및 내비게이션</string>
     <string name="settings_browser_swipe">브라우저 내 스와이프 탭 전환</string>
     <string name="settings_browser_swipe_desc">브라우저 화면에서 좌우로 밀어 탭을 전환하는 제스처를 허용합니다</string>
 
@@ -409,4 +409,114 @@
     <string name="toast_autopair_video_set">🎬 대상 동영상 선택됨: %1$s</string>
     <string name="toast_autopair_saved">✅ 동영상 이름에 맞춰 저장됨: %1$s</string>
     <string name="toast_enter_provider_api_key">먼저 %1$s API 키를 입력해 주세요 (또는 무료 Google 번역 선택).</string>
+
+    <!-- Phase 4: Ad-Blocker, Internal Download Manager, Custom Trackers & RSS Monitor -->
+    <string name="cd_downloads">다운로드</string>
+    <string name="settings_adblock_enable">브라우저 광고 및 팝업 차단기</string>
+    <string name="settings_adblock_enable_desc">WebView 브라우저에서 광고 도메인, 추적기 및 원치 않는 새 창 팝업을 차단합니다</string>
+    <string name="settings_antipopup_strict">외부 도메인 자동 리디렉션 및 팝업 엄격 차단</string>
+    <string name="settings_antipopup_strict_desc">외부 광고 사이트로 자동 이동하거나 새 탭이 열리는 것을 방지합니다</string>
+    <string name="settings_adblock_stats">🛡️ 차단된 광고 및 팝업 총계: %1$d</string>
+    <string name="settings_adblock_reset">초기화</string>
+    <string name="browser_adblock_badge_on">🛡️ %1$d</string>
+    <string name="browser_adblock_badge_off">🛡️ OFF</string>
+    <string name="browser_btn_downloads">📥 %1$d</string>
+    <string name="browser_btn_downloads_idle">📥</string>
+
+    <string name="dl_notif_channel_name">파일 및 자막 다운로드</string>
+    <string name="dl_notif_channel_desc">브라우저 및 자막 다운로드 진행률과 완료 알림을 표시합니다</string>
+    <string name="dl_notif_progress_title">⬇️ %1$s (%2$d%%)</string>
+    <string name="dl_notif_progress_indeterminate">⬇️ %1$s 다운로드 중…</string>
+    <string name="dl_notif_done_title">✅ 다운로드 완료</string>
+    <string name="dl_notif_failed_title">❌ 다운로드 실패</string>
+    <string name="dl_title">📥 내장 다운로드 관리자</string>
+    <string name="dl_subtitle">시스템 알림과 연동된 브라우저 및 자막 다운로드 내역</string>
+    <string name="dl_filter_all">전체 (%1$d)</string>
+    <string name="dl_filter_active">진행 중 (%1$d)</string>
+    <string name="dl_filter_completed">완료됨 (%1$d)</string>
+    <string name="dl_btn_clear_done">완료 내역 지우기</string>
+    <string name="dl_empty_state">아직 브라우저나 자막 다운로드 내역이 없습니다.</string>
+    <string name="dl_cat_browser">🌐 브라우저</string>
+    <string name="dl_cat_subtitle">💬 자막</string>
+    <string name="dl_cat_torrent">🧲 토렌트</string>
+    <string name="dl_state_queued">⏳ 대기 중…</string>
+    <string name="dl_state_downloading">⬇️ 다운로드 중 %1$d%%</string>
+    <string name="dl_state_completed">✅ 완료됨</string>
+    <string name="dl_state_failed">❌ 실패: %1$s</string>
+    <string name="dl_state_cancelled">⚪ 취소됨</string>
+    <string name="dl_btn_open">파일 열기</string>
+    <string name="dl_btn_cancel">⏹️ 취소</string>
+    <string name="dl_btn_retry">재시도</string>
+    <string name="dl_btn_delete">삭제</string>
+    <string name="dl_btn_send_gemini">✨ Gemini</string>
+    <string name="sub_btn_download_mgr">⬇️ 다운로드</string>
+    <string name="chooser_open_file">파일을 열 앱 선택…</string>
+    <string name="toast_dl_started">⬇️ 다운로드 시작: %1$s</string>
+    <string name="toast_dl_completed">✅ 다운로드 완료: %1$s</string>
+    <string name="toast_dl_failed">❌ %1$s 다운로드 실패: %2$s</string>
+    <string name="toast_dl_deleted">🗑️ 내역 및 로컬 파일 삭제됨: %1$s</string>
+    <string name="toast_dl_cleared">🧹 완료된 다운로드 내역을 비웠습니다.</string>
+    <string name="toast_dl_file_missing">⚠️ 저장소에서 로컬 파일을 찾을 수 없습니다.</string>
+    <string name="toast_dl_no_app">⚠️ 이 파일 형식을 열 수 있는 앱이 없습니다.</string>
+
+    <string name="settings_section_trackers">🧲 커스텀 트래커 목록 자동 추가</string>
+    <string name="settings_trackers_desc">복사, 외부 앱 실행 또는 PikPak 전송 전에 모든 마그넷 링크에 공개 및 사용자 트래커를 자동 추가합니다</string>
+    <string name="settings_trackers_enable">마그넷 트래커 자동 추가 활성화</string>
+    <string name="settings_trackers_enable_desc">현재 활성화됨: %1$d개 고유 트래커 준비 완료</string>
+    <string name="settings_trackers_url_label">공개 트래커 목록 업데이트 URL</string>
+    <string name="settings_trackers_btn_update">🔄 URL에서 업데이트</string>
+    <string name="settings_trackers_updating">⏳ 업데이트 중…</string>
+    <string name="settings_trackers_last_updated">마지막 업데이트: %1$s (%2$d개 트래커)</string>
+    <string name="settings_trackers_never_updated">기본 내장 목록 사용 중 (%1$d개 공개 트래커)</string>
+    <string name="settings_trackers_custom_label">사용자 지정 커스텀 트래커 (줄당 1개)</string>
+    <string name="settings_trackers_custom_placeholder">udp://tracker.example.com:1337/announce\nhttps://tracker.example.org/announce</string>
+    <string name="toast_trackers_updated">✅ 공개 트래커 %1$d개를 업데이트했습니다!</string>
+    <string name="toast_trackers_update_failed">❌ 트래커 업데이트 실패: %1$s</string>
+    <string name="toast_trackers_reset">🔄 트래커 설정이 기본값으로 초기화되었습니다.</string>
+
+    <string name="magnet_builder_chip">🧲 마그넷 빌더</string>
+    <string name="magnet_builder_title">🧲 마그넷 빌더 및 트래커 주입</string>
+    <string name="magnet_builder_desc">InfoHash(40자리 Hex / 32자리 Base32) 또는 마그넷을 입력해 %1$d개 활성 트래커가 포함된 링크를 생성합니다.</string>
+    <string name="magnet_builder_hash_label">InfoHash / BTIH 또는 마그넷 링크</string>
+    <string name="magnet_builder_hash_placeholder">예: a1b2c3d4… 또는 magnet:?xt=urn:btih:…</string>
+    <string name="magnet_builder_name_label">릴리스 이름 / 제목 (선택)</string>
+    <string name="magnet_builder_preview_label">마그넷 미리보기 (%1$d개 트래커):</string>
+    <string name="magnet_builder_invalid">올바른 40자리 Hex / 32자리 Base32 InfoHash 또는 마그넷 링크를 입력하세요.</string>
+
+    <string name="torrent_mode_search">🔍 통합 검색 (16곳)</string>
+    <string name="torrent_mode_rss">📡 RSS 모니터</string>
+    <string name="rss_btn_manage_feeds">RSS 피드 (%1$d)</string>
+    <string name="rss_btn_keywords">🎯 감시 키워드 (%1$d)</string>
+    <string name="rss_btn_refresh">새로고침</string>
+    <string name="rss_filter_all">전체 릴리스 (%1$d)</string>
+    <string name="rss_filter_matched">🎯 키워드 일치 (%1$d)</string>
+    <string name="rss_search_placeholder">RSS 릴리스 제목 필터…</string>
+    <string name="rss_empty_no_feeds">토렌트 RSS 피드 URL을 추가하거나 활성화한 뒤 새로고침을 누르세요.</string>
+    <string name="rss_empty_loading">⏳ 활성 RSS 피드에서 최신 릴리스를 불러오는 중…</string>
+    <string name="rss_empty_no_match">현재 필터나 감시 키워드와 일치하는 RSS 항목이 없습니다.</string>
+    <string name="rss_match_badge">🎯 일치: %1$s</string>
+    <string name="rss_btn_copy_magnet">📋 마그넷 복사</string>
+    <string name="rss_btn_quick_stream">⚡ 퀵 스트리밍</string>
+    <string name="rss_btn_download_sub">💬 자막 다운로드</string>
+    <string name="rss_btn_dl_torrent">⬇️ .torrent 파일</string>
+    <string name="rss_feeds_dialog_title">📡 토렌트 RSS 피드 관리</string>
+    <string name="rss_feeds_name_label">사이트 이름 / 라벨 (선택)</string>
+    <string name="rss_feeds_url_label">RSS / Atom XML URL</string>
+    <string name="rss_feeds_btn_add">➕ 피드 추가</string>
+    <string name="rss_feeds_presets_label">빠른 프리셋 (탭하여 추가):</string>
+    <string name="rss_keywords_dialog_title">🎯 감시 키워드 (자동 매칭)</string>
+    <string name="rss_keywords_desc">아래 키워드나 품번이 포함된 새 RSS 릴리스를 자동으로 강조 표시합니다.</string>
+    <string name="rss_keywords_input_placeholder">예: 1080p, One Piece, IPX, HEVC…</string>
+    <string name="rss_keywords_btn_add">추가</string>
+    <string name="rss_keywords_empty">등록된 감시 키워드가 없습니다. 위에서 추가해 보세요!</string>
+    <string name="rss_sub_dialog_title">💬 빠른 자막 다운로드: %1$s</string>
+    <string name="rss_sub_dialog_searching">⏳ \"%1$s\"에 맞는 자막 검색 중…</string>
+    <string name="rss_sub_dialog_empty">\"%1$s\"에 대한 즉시 다운로드 자막을 찾지 못했습니다.</string>
+    <string name="rss_sub_btn_download_now">⬇️ 다운로드</string>
+    <string name="rss_sub_btn_open_tab">🔍 자막 검색 탭에서 열기</string>
+    <string name="toast_rss_feed_added">📡 RSS 피드 추가됨: %1$s</string>
+    <string name="toast_rss_feed_exists">⚠️ 이미 등록된 RSS 피드 URL입니다.</string>
+    <string name="toast_rss_invalid_url">⚠️ 올바른 http:// 또는 https:// RSS URL을 입력하세요.</string>
+    <string name="toast_rss_refreshed">📡 RSS 항목 %1$d개 로드 완료 (키워드 일치 %2$d개)!</string>
+    <string name="toast_rss_keyword_added">🎯 감시 키워드 추가됨: %1$s</string>
 </resources>

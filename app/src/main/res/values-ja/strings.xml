@@ -57,7 +57,7 @@
     <string name="theme_amoled">AMOLED Black</string>
     <string name="theme_amoled_desc">省電力の漆黒 #000000</string>
 
-    <string name="settings_section_browser">🧭 ブラウザ操作</string>
+    <string name="settings_section_browser">🧭 ブラウザ・広告ブロック・操作設定</string>
     <string name="settings_browser_swipe">ブラウザ画面でのスワイプタブ切替</string>
     <string name="settings_browser_swipe_desc">ブラウザ表示中に左右スワイプでタブを切り替える操作を許可します</string>
 
@@ -409,4 +409,114 @@
     <string name="toast_autopair_video_set">🎬 対象動画を選択: %1$s</string>
     <string name="toast_autopair_saved">✅ 動画名に合わせて保存しました: %1$s</string>
     <string name="toast_enter_provider_api_key">先に %1$s の API キーを入力してください（または無料 Google 翻訳を選択）。</string>
+
+    <!-- Phase 4: Ad-Blocker, Internal Download Manager, Custom Trackers & RSS Monitor -->
+    <string name="cd_downloads">ダウンロード</string>
+    <string name="settings_adblock_enable">ブラウザ広告ブロック &amp; ポップアップ防止</string>
+    <string name="settings_adblock_enable_desc">WebView 内の広告ドメイン、トラッカー、不要な新規ウィンドウを自動ブロックします</string>
+    <string name="settings_antipopup_strict">外部ドメインへのリダイレクト・ポップアップ厳格防止</string>
+    <string name="settings_antipopup_strict_desc">外部広告サイトへの自動転送や不審な別タブ展開を防止します</string>
+    <string name="settings_adblock_stats">🛡️ ブロックした広告・ポップアップ総数: %1$d</string>
+    <string name="settings_adblock_reset">リセット</string>
+    <string name="browser_adblock_badge_on">🛡️ %1$d</string>
+    <string name="browser_adblock_badge_off">🛡️ OFF</string>
+    <string name="browser_btn_downloads">📥 %1$d</string>
+    <string name="browser_btn_downloads_idle">📥</string>
+
+    <string name="dl_notif_channel_name">ファイル &amp; 字幕ダウンロード</string>
+    <string name="dl_notif_channel_desc">ブラウザや字幕のダウンロード進捗と完了通知を表示します</string>
+    <string name="dl_notif_progress_title">⬇️ %1$s (%2$d%%)</string>
+    <string name="dl_notif_progress_indeterminate">⬇️ %1$s をダウンロード中…</string>
+    <string name="dl_notif_done_title">✅ ダウンロード完了</string>
+    <string name="dl_notif_failed_title">❌ ダウンロード失敗</string>
+    <string name="dl_title">📥 内蔵ダウンロードマネージャー</string>
+    <string name="dl_subtitle">システム通知と連携したブラウザ・字幕ダウンロード履歴</string>
+    <string name="dl_filter_all">すべて (%1$d)</string>
+    <string name="dl_filter_active">進行中 (%1$d)</string>
+    <string name="dl_filter_completed">完了 (%1$d)</string>
+    <string name="dl_btn_clear_done">完了済みを消去</string>
+    <string name="dl_empty_state">ブラウザや字幕のダウンロード履歴はまだありません。</string>
+    <string name="dl_cat_browser">🌐 ブラウザ</string>
+    <string name="dl_cat_subtitle">💬 字幕</string>
+    <string name="dl_cat_torrent">🧲 トレント</string>
+    <string name="dl_state_queued">⏳ 待機中…</string>
+    <string name="dl_state_downloading">⬇️ ダウンロード中 %1$d%%</string>
+    <string name="dl_state_completed">✅ 完了</string>
+    <string name="dl_state_failed">❌ 失敗: %1$s</string>
+    <string name="dl_state_cancelled">⚪ キャンセル済</string>
+    <string name="dl_btn_open">ファイルを開く</string>
+    <string name="dl_btn_cancel">⏹️ 中止</string>
+    <string name="dl_btn_retry">再試行</string>
+    <string name="dl_btn_delete">削除</string>
+    <string name="dl_btn_send_gemini">✨ Gemini</string>
+    <string name="sub_btn_download_mgr">⬇️ DL保存</string>
+    <string name="chooser_open_file">アプリを選択して開く…</string>
+    <string name="toast_dl_started">⬇️ ダウンロード開始: %1$s</string>
+    <string name="toast_dl_completed">✅ ダウンロード完了: %1$s</string>
+    <string name="toast_dl_failed">❌ %1$s のダウンロード失敗: %2$s</string>
+    <string name="toast_dl_deleted">🗑️ 履歴とファイルを削除しました: %1$s</string>
+    <string name="toast_dl_cleared">🧹 完了したダウンロード履歴を消去しました。</string>
+    <string name="toast_dl_file_missing">⚠️ 保存先にファイルが見つかりません。</string>
+    <string name="toast_dl_no_app">⚠️ このファイル形式を開けるアプリがありません。</string>
+
+    <string name="settings_section_trackers">🧲 カスタムトラッカー自動追加</string>
+    <string name="settings_trackers_desc">コピー・外部起動・PikPak送信の前に、マグネットリンクへ公開トラッカーやカスタムリストを自動付与します</string>
+    <string name="settings_trackers_enable">トラッカー自動追加を有効にする</string>
+    <string name="settings_trackers_enable_desc">現在有効: %1$d 件のトラッカーを自動付与</string>
+    <string name="settings_trackers_url_label">公開トラッカー更新元 URL</string>
+    <string name="settings_trackers_btn_update">🔄 URLから更新</string>
+    <string name="settings_trackers_updating">⏳ 更新中…</string>
+    <string name="settings_trackers_last_updated">最終更新: %1$s (%2$d 件)</string>
+    <string name="settings_trackers_never_updated">標準内蔵リストを使用中 (%1$d 件)</string>
+    <string name="settings_trackers_custom_label">ユーザーカスタムトラッカー (1行に1つ)</string>
+    <string name="settings_trackers_custom_placeholder">udp://tracker.example.com:1337/announce\nhttps://tracker.example.org/announce</string>
+    <string name="toast_trackers_updated">✅ %1$d 件の公開トラッカーを更新しました！</string>
+    <string name="toast_trackers_update_failed">❌ トラッカー更新失敗: %1$s</string>
+    <string name="toast_trackers_reset">🔄 トラッカー設定を初期状態に戻しました。</string>
+
+    <string name="magnet_builder_chip">🧲 Magnet作成</string>
+    <string name="magnet_builder_title">🧲 マグネットビルダー &amp; トラッカー付与</string>
+    <string name="magnet_builder_desc">InfoHash (40文字Hex / 32文字Base32) またはマグネットを入力し、%1$d 件のトラッカー付きリンクを生成します。</string>
+    <string name="magnet_builder_hash_label">InfoHash / BTIH またはマグネットリンク</string>
+    <string name="magnet_builder_hash_placeholder">例: a1b2c3d4… または magnet:?xt=urn:btih:…</string>
+    <string name="magnet_builder_name_label">タイトル / 表示名 (任意)</string>
+    <string name="magnet_builder_preview_label">生成プレビュー (%1$d トラッカー):</string>
+    <string name="magnet_builder_invalid">有効な 40文字Hex / 32文字Base32 InfoHash またはマグネットリンクを入力してください。</string>
+
+    <string name="torrent_mode_search">🔍 検索 (16サイト)</string>
+    <string name="torrent_mode_rss">📡 RSS モニター</string>
+    <string name="rss_btn_manage_feeds">RSS フィード (%1$d)</string>
+    <string name="rss_btn_keywords">🎯 監視ワード (%1$d)</string>
+    <string name="rss_btn_refresh">更新</string>
+    <string name="rss_filter_all">全リリース (%1$d)</string>
+    <string name="rss_filter_matched">🎯 一致のみ (%1$d)</string>
+    <string name="rss_search_placeholder">RSS タイトルを絞り込み…</string>
+    <string name="rss_empty_no_feeds">トレント RSS フィードを追加・有効化して「更新」をタップしてください。</string>
+    <string name="rss_empty_loading">⏳ RSS フィードから最新リリースを取得中…</string>
+    <string name="rss_empty_no_match">現在のフィルタや監視ワードに一致する項目はありません。</string>
+    <string name="rss_match_badge">🎯 一致: %1$s</string>
+    <string name="rss_btn_copy_magnet">📋 Magnetコピー</string>
+    <string name="rss_btn_quick_stream">⚡ クイック再生</string>
+    <string name="rss_btn_download_sub">💬 字幕をDL</string>
+    <string name="rss_btn_dl_torrent">⬇️ .torrent取得</string>
+    <string name="rss_feeds_dialog_title">📡 トレント RSS フィード管理</string>
+    <string name="rss_feeds_name_label">サイト名 / ラベル (任意)</string>
+    <string name="rss_feeds_url_label">RSS / Atom XML URL</string>
+    <string name="rss_feeds_btn_add">➕ フィードを追加</string>
+    <string name="rss_feeds_presets_label">クイックプリセット (タップで追加):</string>
+    <string name="rss_keywords_dialog_title">🎯 監視キーワード (自動マッチ)</string>
+    <string name="rss_keywords_desc">以下のキーワードや品番を含む新着 RSS リリースを自動的にハイライト表示します。</string>
+    <string name="rss_keywords_input_placeholder">例: 1080p, One Piece, IPX, HEVC…</string>
+    <string name="rss_keywords_btn_add">追加</string>
+    <string name="rss_keywords_empty">監視キーワードが未登録です。上から追加してください！</string>
+    <string name="rss_sub_dialog_title">💬 字幕クイックダウンロード: %1$s</string>
+    <string name="rss_sub_dialog_searching">⏳ \"%1$s\" に一致する字幕を検索中…</string>
+    <string name="rss_sub_dialog_empty">\"%1$s\" の字幕が見つかりませんでした。</string>
+    <string name="rss_sub_btn_download_now">⬇️ 保存</string>
+    <string name="rss_sub_btn_open_tab">🔍 字幕検索タブで開く</string>
+    <string name="toast_rss_feed_added">📡 RSS フィードを追加しました: %1$s</string>
+    <string name="toast_rss_feed_exists">⚠️ その RSS URL は既に登録されています。</string>
+    <string name="toast_rss_invalid_url">⚠️ 有効な http:// または https:// の URL を入力してください。</string>
+    <string name="toast_rss_refreshed">📡 %1$d 件の RSS を取得しました（一致: %2$d 件）！</string>
+    <string name="toast_rss_keyword_added">🎯 監視キーワードを追加しました: %1$s</string>
 </resources>

@@ -64,6 +64,7 @@ import com.torrenthub.aio.model.UserscriptItem
 import com.torrenthub.aio.model.UserscriptMenuCmd
 import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.util.AdBlockHelper
+import com.torrenthub.aio.util.ExternalPlayerHelper
 import com.torrenthub.aio.util.Formatters
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -358,7 +359,7 @@ class BrowserWebViewHolder {
 
                     @JavascriptInterface
                     fun onPopupBlocked(blockedUrl: String) {
-                        post { vm.browserBlockedAdsCount++ }
+                        post { vm.incrementBlockedAds() }
                     }
 
                     @JavascriptInterface
@@ -374,6 +375,31 @@ class BrowserWebViewHolder {
                 },
                 "__thGmBridge"
             )
+
+            setDownloadListener { dlUrl, userAgent, contentDisposition, mimetype, contentLength ->
+                val cleanUrl = dlUrl?.trim().orEmpty()
+                if (cleanUrl.isBlank()) return@setDownloadListener
+                if (cleanUrl.startsWith("magnet:", ignoreCase = true) || cleanUrl.startsWith("ed2k://", ignoreCase = true)) {
+                    post { onInterceptMagnet?.invoke(cleanUrl) }
+                    return@setDownloadListener
+                }
+                val cleanPath = cleanUrl.substringBefore('?').substringBefore('#')
+                if (cleanPath.endsWith(".user.js", ignoreCase = true)) {
+                    post { onInterceptUserscriptUrl?.invoke(cleanUrl) }
+                    return@setDownloadListener
+                }
+                val ref = this.url ?: vm.browserCurrentUrl
+                post {
+                    vm.startBrowserFileDownload(
+                        url = cleanUrl,
+                        userAgent = userAgent,
+                        contentDisposition = contentDisposition,
+                        mimeType = mimetype,
+                        contentLength = contentLength,
+                        referer = ref
+                    )
+                }
+            }
 
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -394,10 +420,22 @@ class BrowserWebViewHolder {
                     if (view == null) return false
                     val hit = view.hitTestResult
                     val targetUrl = hit.extra.orEmpty()
+                    if (targetUrl.startsWith("magnet:", ignoreCase = true) ||
+                        targetUrl.startsWith("ed2k://", ignoreCase = true)
+                    ) {
+                        onInterceptMagnet?.invoke(targetUrl)
+                        return false
+                    }
                     if (vm.browserAdShieldEnabled) {
-                        val pageHost = try { Uri.parse(view.url.orEmpty()).host.orEmpty() } catch (_: Exception) { "" }
-                        if (!isUserGesture || targetUrl.isBlank() || AdBlockHelper.isAdUrl(targetUrl, pageHost)) {
-                            vm.browserBlockedAdsCount++
+                        val curPage = view.url.orEmpty().ifBlank { vm.browserCurrentUrl }
+                        if (AdBlockHelper.shouldBlockPopupWindow(
+                                targetUrl = targetUrl,
+                                currentPageUrl = curPage,
+                                isUserGesture = isUserGesture,
+                                strictAntiPopup = vm.browserAntiPopupStrict
+                            )
+                        ) {
+                            vm.incrementBlockedAds()
                             return false
                         }
                     }
@@ -419,7 +457,7 @@ class BrowserWebViewHolder {
                         val reqUrl = request.url?.toString().orEmpty()
                         val pageHost = try { Uri.parse(vm.browserCurrentUrl).host.orEmpty() } catch (_: Exception) { "" }
                         if (AdBlockHelper.isAdUrl(reqUrl, pageHost)) {
-                            view?.post { vm.browserBlockedAdsCount++ }
+                            view?.post { vm.incrementBlockedAds() }
                             return AdBlockHelper.emptyResponse()
                         }
                     }
@@ -448,9 +486,24 @@ class BrowserWebViewHolder {
                         !url.startsWith("https://", ignoreCase = true)
                     ) {
                         if (vm.browserAdShieldEnabled) {
-                            vm.browserBlockedAdsCount++
+                            vm.incrementBlockedAds()
                         }
                         return true
+                    }
+
+                    if (vm.browserAdShieldEnabled && request != null) {
+                        val curUrl = view?.url?.takeIf { it.isNotBlank() } ?: vm.browserCurrentUrl
+                        if (AdBlockHelper.shouldBlockNavigation(
+                                targetUrl = url,
+                                currentPageUrl = curUrl,
+                                isUserGesture = request.hasGesture(),
+                                isRedirect = request.isRedirect,
+                                strictAntiPopup = vm.browserAntiPopupStrict
+                            )
+                        ) {
+                            vm.incrementBlockedAds()
+                            return true
+                        }
                     }
                     return false
                 }
@@ -763,7 +816,27 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                             }
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val activeDl = vm.activeDownloadsCount
+                            Surface(
+                                color = if (activeDl > 0) p.accentBlue.copy(alpha = if (p.isLight) 0.16f else 0.25f) else p.subCardSurface,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (activeDl > 0) p.accentBlue else p.borderColor),
+                                modifier = Modifier.clickable { vm.showDownloadManagerDialog = true }
+                            ) {
+                                Text(
+                                    text = if (vm.downloadRecords.isNotEmpty()) {
+                                        stringResource(R.string.browser_btn_downloads, vm.downloadRecords.size)
+                                    } else {
+                                        stringResource(R.string.browser_btn_downloads_idle)
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeDl > 0) p.accentBlue else p.textPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+
                             val activeCount = vm.activePageScriptNames.size
                             Surface(
                                 color = if (activeCount > 0) Color(0xFF4C1D95) else p.subCardSurface,
@@ -776,23 +849,28 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (activeCount > 0) Color(0xFFE9D5FF) else p.textPrimary,
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 )
                             }
 
                             Surface(
-                                color = if (vm.browserAdShieldEnabled) Color(0xFF064E3B) else p.chipBg,
+                                color = if (vm.browserAdShieldEnabled) p.accentGreen.copy(alpha = if (p.isLight) 0.15f else 0.22f) else p.chipBg,
                                 shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (vm.browserAdShieldEnabled) p.accentGreen else p.borderColor),
                                 modifier = Modifier.clickable {
                                     vm.toggleBrowserAdShield(!vm.browserAdShieldEnabled)
                                     holder.webView?.reload()
                                 }
                             ) {
                                 Text(
-                                    if (vm.browserAdShieldEnabled) "🛡️ ${vm.browserBlockedAdsCount}" else "🛡️ OFF",
+                                    text = if (vm.browserAdShieldEnabled) {
+                                        stringResource(R.string.browser_adblock_badge_on, vm.browserBlockedAdsCount)
+                                    } else {
+                                        stringResource(R.string.browser_adblock_badge_off)
+                                    },
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (vm.browserAdShieldEnabled) Color(0xFF6EE7B7) else p.textMuted,
+                                    color = if (vm.browserAdShieldEnabled) p.accentGreen else p.textMuted,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 )
                             }
@@ -1108,19 +1186,20 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
 
     // Intercepted Magnet / ED2K Link Dialog inside Browser
     if (interceptedMagnet != null) {
-        val mag = interceptedMagnet!!
+        val rawMag = interceptedMagnet!!
+        val enrichedMag = vm.prepareMagnet(rawMag)
         AlertDialog(
             onDismissRequest = { interceptedMagnet = null },
             title = { Text(stringResource(R.string.browser_magnet_title), fontWeight = FontWeight.Bold) },
             text = {
-                Text(mag, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Text(enrichedMag, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, maxLines = 4, overflow = TextOverflow.Ellipsis)
             },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(
                         onClick = {
                             interceptedMagnet = null
-                            vm.sendMagnetsToPikPak(listOf(mag))
+                            vm.sendMagnetsToPikPak(listOf(enrichedMag))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
                     ) {
@@ -1129,9 +1208,9 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
                     Button(
                         onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Magnet", mag))
+                            cm.setPrimaryClip(ClipData.newPlainText("Magnet", enrichedMag))
                             interceptedMagnet = null
-                            vm.emitToast(vm.str(R.string.toast_link_copied, mag.take(40)))
+                            vm.emitToast(vm.str(R.string.toast_link_copied, enrichedMag.take(40)))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
                     ) {
@@ -1142,14 +1221,7 @@ fun BrowserScreen(vm: AppViewModel, holder: BrowserWebViewHolder, isActive: Bool
             dismissButton = {
                 TextButton(onClick = {
                     interceptedMagnet = null
-                    try {
-                        val extIntent = Intent(Intent.ACTION_VIEW, Uri.parse(mag)).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(extIntent)
-                    } catch (_: Exception) {
-                        vm.emitToast(vm.str(R.string.toast_no_torrent_app))
-                    }
+                    ExternalPlayerHelper.streamMagnetWithChooser(context, enrichedMag, vm)
                 }) {
                     Text(stringResource(R.string.browser_btn_external_app))
                 }

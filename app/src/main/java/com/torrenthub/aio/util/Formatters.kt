@@ -27,6 +27,12 @@ object Formatters {
         "&tr=" + urlEncode(it)
     }
 
+    @Volatile
+    var dynamicAutoAppendTrackers: Boolean = true
+
+    @Volatile
+    var dynamicTrackersList: List<String> = PUBLIC_TRACKERS
+
     fun urlEncode(value: String): String =
         try {
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
@@ -65,13 +71,25 @@ object Formatters {
 
     fun buildMagnet(hashOrLink: String, title: String = ""): String {
         val raw = hashOrLink.trim()
-        if (raw.startsWith("magnet:", ignoreCase = true) || raw.startsWith("ed2k:", ignoreCase = true)) {
+        if (raw.startsWith("ed2k:", ignoreCase = true)) {
             return raw
+        }
+        if (raw.startsWith("magnet:", ignoreCase = true)) {
+            return TrackerManager.applyTrackersToMagnet(
+                rawLink = raw,
+                enabled = dynamicAutoAppendTrackers,
+                trackers = dynamicTrackersList
+            )
         }
         val cleanHash = extractInfoHash(raw)
         if (cleanHash.isBlank() || cleanHash.startsWith("ed2k:")) return ""
         val dn = urlEncode(title.ifBlank { cleanHash })
-        return "magnet:?xt=urn:btih:$cleanHash&dn=$dn$TRACKER_PARAMS"
+        val base = "magnet:?xt=urn:btih:$cleanHash&dn=$dn"
+        return if (dynamicAutoAppendTrackers) {
+            TrackerManager.applyTrackersToMagnet(base, enabled = true, trackers = dynamicTrackersList)
+        } else {
+            base
+        }
     }
 
     fun parseSizeToBytes(rawVal: Any?): Long {

@@ -1,10 +1,12 @@
 package com.torrenthub.aio.ui
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,15 +14,19 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.torrenthub.aio.R
+import com.torrenthub.aio.data.AppDownloadManager
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.AppThemeMode
 import com.torrenthub.aio.data.GeminiEngine
 import com.torrenthub.aio.data.PikPakClient
+import com.torrenthub.aio.data.RssRepository
 import com.torrenthub.aio.data.SettingsRepository
 import com.torrenthub.aio.data.SubtitleRepository
 import com.torrenthub.aio.data.TorrentRepository
 import com.torrenthub.aio.data.UserscriptManager
 import com.torrenthub.aio.model.BrowserBookmark
+import com.torrenthub.aio.model.DownloadRecord
+import com.torrenthub.aio.model.DownloadState
 import com.torrenthub.aio.model.GeminiJob
 import com.torrenthub.aio.model.PikPakCredentials
 import com.torrenthub.aio.model.PikPakDriveItem
@@ -29,6 +35,8 @@ import com.torrenthub.aio.model.PikPakTaskInfo
 import com.torrenthub.aio.model.PillState
 import com.torrenthub.aio.model.QuickStreamStage
 import com.torrenthub.aio.model.QuickStreamState
+import com.torrenthub.aio.model.RssFeedItem
+import com.torrenthub.aio.model.RssFeedSource
 import com.torrenthub.aio.model.SafVideoFile
 import com.torrenthub.aio.model.SourceStatus
 import com.torrenthub.aio.model.SubtitleItem
@@ -42,6 +50,8 @@ import com.torrenthub.aio.util.Formatters
 import com.torrenthub.aio.util.LocaleHelper
 import com.torrenthub.aio.util.NotificationHelper
 import com.torrenthub.aio.util.SafSubtitleHelper
+import com.torrenthub.aio.util.TrackerManager
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -275,7 +285,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var browserCanGoBack by mutableStateOf(false)
     var browserCanGoForward by mutableStateOf(false)
     var browserAdShieldEnabled by mutableStateOf(settings.browserAdShieldEnabled)
-    var browserBlockedAdsCount by mutableIntStateOf(0)
+    var browserAntiPopupStrict by mutableStateOf(settings.browserAntiPopupStrict)
+        private set
+    var browserBlockedAdsCount by mutableIntStateOf(
+        settings.browserBlockedAdsTotal.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    )
     var browserSelectedQuery by mutableStateOf("")
 
     val browserBookmarks = mutableStateListOf<BrowserBookmark>()
@@ -284,7 +298,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val activePageScriptNames = mutableStateListOf<String>()
     val activePageMenuCommands = mutableStateListOf<UserscriptMenuCmd>()
 
+    /* =====================================================================
+     * PHASE 4: DOWNLOAD MANAGER, CUSTOM TRACKER LIST & RSS MONITOR
+     * ===================================================================== */
+    val downloadManager = AppDownloadManager.getInstance(app)
+    val downloadRecords: List<DownloadRecord>
+        get() = downloadManager.records
+    var showDownloadManagerDialog by mutableStateOf(false)
+    val activeDownloadsCount: Int
+        get() = downloadManager.records.count {
+            it.state == DownloadState.DOWNLOADING || it.state == DownloadState.QUEUED
+        }
+
+    var autoAppendTrackers by mutableStateOf(settings.autoAppendTrackers)
+        private set
+    var trackerSourceUrl by mutableStateOf(settings.trackerSourceUrl)
+    var fetchedTrackersRaw by mutableStateOf(settings.fetchedTrackersRaw)
+        private set
+    var customTrackersRaw by mutableStateOf(settings.customTrackersRaw)
+    var trackerLastUpdatedMs by mutableLongStateOf(settings.trackerLastUpdatedMs)
+        private set
+    var isUpdatingTrackers by mutableStateOf(false)
+        private set
+
+    val activeTrackersList: List<String>
+        get() = TrackerManager.getActiveTrackers(fetchedTrackersRaw, customTrackersRaw)
+
+    var torrentSubTab by mutableIntStateOf(0)
+    val rssFeeds = mutableStateListOf<RssFeedSource>()
+    val rssWatchKeywords = mutableStateListOf<String>()
+    val rssItems = mutableStateListOf<RssFeedItem>()
+    var isLoadingRss by mutableStateOf(false)
+        private set
+    var rssOnlyMatched by mutableStateOf(false)
+    var rssSelectedFeedId by mutableStateOf("all")
+    var rssSearchFilter by mutableStateOf("")
+    private var rssRefreshJob: Job? = null
+
+    val rssMatchedCount: Int
+        get() = rssItems.count { it.isMatched }
+
     init {
+        syncFormattersTrackerConfig()
         if (GeminiEngine.isBuiltInDefaultTranslateNotes(geminiNotesTranslate)) {
             geminiNotesTranslate = GeminiEngine.defaultNotesTranslate(subtitleTargetLang.code)
         }
@@ -295,6 +350,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadSavedModels()
         loadBrowserBookmarks()
         reloadInstalledUserscripts()
+        loadRssConfiguration()
         if (pikpakCreds.isLoggedIn) {
             refreshPikPakTasks()
             loadPikPakDirectory("")
@@ -1122,15 +1178,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             currentTab = 3
             return
         }
+        val enrichedMagnets = magnets.map { prepareMagnet(it) }.filter { it.isNotBlank() }
+        if (enrichedMagnets.isEmpty()) return
         viewModelScope.launch {
-            emitToast(str(R.string.toast_pikpak_sending_magnets, magnets.size))
-            val res = PikPakClient.sendMagnetsToCloud(magnets, pikpakCreds)
+            emitToast(str(R.string.toast_pikpak_sending_magnets, enrichedMagnets.size))
+            val res = PikPakClient.sendMagnetsToCloud(enrichedMagnets, pikpakCreds)
             res.updatedCreds?.let { savePikPakCreds(it) }
             if (res.ok) {
                 emitToast(str(R.string.toast_pikpak_magnets_sent, res.addedCount, pikpakCreds.targetFolderName))
                 refreshPikPakTasks()
             } else {
-                emitToast(str(R.string.toast_pikpak_magnets_failed, res.addedCount, magnets.size, res.errorMessage))
+                emitToast(str(R.string.toast_pikpak_magnets_failed, res.addedCount, enrichedMagnets.size, res.errorMessage))
             }
         }
     }
@@ -1256,14 +1314,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             currentTab = 3
             return
         }
+        val enrichedMagnet = prepareMagnet(item.magnet)
         quickStreamJob?.cancel()
         quickStreamState = QuickStreamState(
             torrentTitle = item.title,
-            magnet = item.magnet,
+            magnet = enrichedMagnet,
             stage = QuickStreamStage.SENDING_MAGNET
         )
         quickStreamJob = viewModelScope.launch {
-            val submit = PikPakClient.addMagnetForQuickStream(item.magnet, pikpakCreds)
+            val submit = PikPakClient.addMagnetForQuickStream(enrichedMagnet, pikpakCreds)
             submit.updatedCreds?.let { savePikPakCreds(it) }
             if (!submit.ok) {
                 quickStreamState = quickStreamState?.copy(
@@ -1482,6 +1541,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         emitToast(if (enabled) str(R.string.toast_adshield_on) else str(R.string.toast_adshield_off))
     }
 
+    fun updateBrowserAntiPopupStrict(enabled: Boolean) {
+        browserAntiPopupStrict = enabled
+        settings.setBrowserAntiPopupStrict(enabled)
+    }
+
+    fun incrementBlockedAds(delta: Int = 1) {
+        if (delta <= 0) return
+        browserBlockedAdsCount += delta
+        settings.setBrowserBlockedAdsTotal(browserBlockedAdsCount.toLong())
+    }
+
+    fun resetBlockedAdsCount() {
+        browserBlockedAdsCount = 0
+        settings.setBrowserBlockedAdsTotal(0L)
+    }
+
     fun searchTorrentFromBrowser(rawQuery: String) {
         val clean = rawQuery.trim()
         if (clean.isEmpty()) return
@@ -1597,5 +1672,433 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         installedUserscripts.addAll(next)
         userscriptRevision++
         emitToast(str(R.string.toast_script_deleted))
+    }
+
+    /* =====================================================================
+     * PHASE 4: INTERNAL DOWNLOAD MANAGER ACTIONS
+     * ===================================================================== */
+    fun startBrowserFileDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        contentLength: Long,
+        referer: String = browserCurrentUrl
+    ) {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isBlank()) return
+        val rec = downloadManager.enqueueBrowserDownload(
+            url = cleanUrl,
+            userAgent = userAgent,
+            contentDisposition = contentDisposition,
+            mimeType = mimeType,
+            contentLength = contentLength,
+            referer = referer,
+            onComplete = { done ->
+                emitToast(str(R.string.toast_dl_completed, done.fileName))
+            },
+            onError = { failed, err ->
+                emitToast(str(R.string.toast_dl_failed, failed.fileName, err))
+            }
+        )
+        emitToast(str(R.string.toast_dl_started, rec.fileName))
+    }
+
+    fun downloadSubtitleViaManager(
+        fileName: String,
+        subtitleUrl: String,
+        preloadedContentUtf8: String? = null
+    ) {
+        val rec = downloadManager.enqueueSubtitleDownload(
+            fileName = fileName,
+            subtitleUrl = subtitleUrl,
+            targetLangCode = subtitleTargetLang.code,
+            preloadedContentUtf8 = preloadedContentUtf8,
+            onComplete = { done, utf8Text ->
+                emitToast(str(R.string.toast_dl_completed, done.fileName))
+                if (autoPairSubtitleVideo && autoPairFolderUri.isNotBlank()) {
+                    viewModelScope.launch {
+                        try {
+                            val appCtx = getApplication<Application>()
+                            val targetVid = autoPairVideoName.takeIf { it.isNotBlank() } ?: run {
+                                val vids = withContext(Dispatchers.IO) {
+                                    SafSubtitleHelper.listVideosInTree(appCtx, autoPairFolderUri)
+                                }
+                                SafSubtitleHelper.findBestMatchingVideo(vids, done.fileName)?.name
+                            }
+                            if (!targetVid.isNullOrBlank()) {
+                                val savedPaired = saveSubtitlePairedToSaf(
+                                    videoFileName = targetVid,
+                                    subtitleNameOrExt = done.fileName,
+                                    contentUtf8 = utf8Text,
+                                    pinVideoSelection = false
+                                )
+                                emitToast(str(R.string.toast_autopair_saved, savedPaired))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            },
+            onError = { err ->
+                emitToast(str(R.string.toast_dl_failed, fileName, err))
+            }
+        )
+        emitToast(str(R.string.toast_dl_started, rec.fileName))
+    }
+
+    fun cancelDownloadTask(id: String) {
+        downloadManager.cancelDownload(id)
+    }
+
+    fun retryDownloadTask(id: String) {
+        downloadManager.retryDownload(
+            id = id,
+            onComplete = { done -> emitToast(str(R.string.toast_dl_completed, done.fileName)) },
+            onError = { err -> emitToast(str(R.string.toast_download_failed, err)) }
+        )
+    }
+
+    fun deleteDownloadTask(id: String) {
+        val removed = downloadManager.deleteDownload(id, deleteFromDisk = true)
+        if (removed != null) {
+            emitToast(str(R.string.toast_dl_deleted, removed.fileName))
+        }
+    }
+
+    fun clearFinishedDownloads() {
+        downloadManager.clearFinishedDownloads()
+        emitToast(str(R.string.toast_dl_cleared))
+    }
+
+    fun openDownloadRecord(context: Context, record: DownloadRecord) {
+        downloadManager.openDownloadedFile(
+            context = context,
+            record = record,
+            chooserTitle = str(R.string.chooser_open_file),
+            onMissingFile = { emitToast(str(R.string.toast_dl_file_missing)) },
+            onNoAppFound = { emitToast(str(R.string.toast_dl_no_app)) }
+        )
+    }
+
+    fun sendDownloadedSubtitleToGemini(record: DownloadRecord) {
+        viewModelScope.launch {
+            try {
+                val content = withContext(Dispatchers.IO) {
+                    val f = File(record.localPath)
+                    if (!f.exists()) throw IllegalStateException("File missing")
+                    f.readText(Charsets.UTF_8)
+                }
+                if (content.isBlank()) throw IllegalStateException("Empty file")
+                addGeminiJob(record.fileName, content)
+                showDownloadManagerDialog = false
+                currentTab = 2
+                emitToast(str(R.string.toast_sent_to_gemini, record.fileName))
+            } catch (e: Exception) {
+                emitToast(str(R.string.toast_read_file_failed, e.message ?: "Error"))
+            }
+        }
+    }
+
+    /* =====================================================================
+     * PHASE 4: CUSTOM TRACKER LIST & MAGNET BUILDER ACTIONS
+     * ===================================================================== */
+    private fun syncFormattersTrackerConfig() {
+        Formatters.dynamicAutoAppendTrackers = autoAppendTrackers
+        Formatters.dynamicTrackersList = activeTrackersList
+    }
+
+    fun prepareMagnet(rawMagnet: String): String =
+        TrackerManager.applyTrackersToMagnet(
+            rawLink = rawMagnet,
+            enabled = autoAppendTrackers,
+            trackers = activeTrackersList
+        )
+
+    fun buildCustomMagnet(hashOrMagnet: String, displayName: String = ""): String =
+        TrackerManager.buildMagnetLink(
+            hashOrMagnetInput = hashOrMagnet,
+            displayName = displayName,
+            appendTrackers = autoAppendTrackers,
+            trackers = activeTrackersList
+        )
+
+    fun updateAutoAppendTrackers(enabled: Boolean) {
+        autoAppendTrackers = enabled
+        settings.setAutoAppendTrackers(enabled)
+        syncFormattersTrackerConfig()
+    }
+
+    fun updateTrackerSourceUrl(url: String) {
+        trackerSourceUrl = url
+        settings.setTrackerSourceUrl(url)
+    }
+
+    fun updateCustomTrackers(raw: String) {
+        customTrackersRaw = raw
+        settings.setCustomTrackersRaw(raw)
+        syncFormattersTrackerConfig()
+    }
+
+    fun resetTrackersToDefault() {
+        trackerSourceUrl = TrackerManager.DEFAULT_TRACKER_URL
+        fetchedTrackersRaw = ""
+        customTrackersRaw = ""
+        trackerLastUpdatedMs = 0L
+        settings.setTrackerSourceUrl(TrackerManager.DEFAULT_TRACKER_URL)
+        settings.saveFetchedTrackers("", 0L)
+        settings.setCustomTrackersRaw("")
+        syncFormattersTrackerConfig()
+        emitToast(str(R.string.toast_trackers_reset))
+    }
+
+    fun refreshTrackersFromUrl() {
+        if (isUpdatingTrackers) return
+        val targetUrl = trackerSourceUrl.trim().ifBlank { TrackerManager.DEFAULT_TRACKER_URL }
+        settings.setTrackerSourceUrl(targetUrl)
+        viewModelScope.launch {
+            isUpdatingTrackers = true
+            try {
+                val fetchedList = TrackerManager.fetchTrackersFromUrl(targetUrl)
+                val joined = fetchedList.joinToString("\n")
+                val now = System.currentTimeMillis()
+                fetchedTrackersRaw = joined
+                trackerLastUpdatedMs = now
+                settings.saveFetchedTrackers(joined, now)
+                syncFormattersTrackerConfig()
+                emitToast(str(R.string.toast_trackers_updated, fetchedList.size))
+            } catch (e: Exception) {
+                emitToast(str(R.string.toast_trackers_update_failed, e.message ?: "Error"))
+            } finally {
+                isUpdatingTrackers = false
+            }
+        }
+    }
+
+    /* =====================================================================
+     * PHASE 4: RSS FEED MONITOR & KEYWORD AUTO-MATCH ACTIONS
+     * ===================================================================== */
+    private fun loadRssConfiguration() {
+        rssFeeds.clear()
+        val rawFeeds = settings.rssFeedsJson
+        var loadedAnyFeed = false
+        if (rawFeeds != null) {
+            try {
+                val arr = JSONArray(rawFeeds)
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val u = o.optString("url").trim()
+                    if (u.isNotBlank()) {
+                        rssFeeds.add(
+                            RssFeedSource(
+                                id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                                title = o.optString("title").ifBlank { u },
+                                url = u,
+                                enabled = o.optBoolean("enabled", true),
+                                lastSyncMs = o.optLong("lastSyncMs", 0L),
+                                lastItemCount = o.optInt("lastItemCount", 0),
+                                lastError = o.optString("lastError", "")
+                            )
+                        )
+                    }
+                }
+                loadedAnyFeed = true
+            } catch (_: Exception) {}
+        }
+        if (!loadedAnyFeed) {
+            rssFeeds.addAll(RssRepository.defaultFeeds())
+        }
+
+        rssWatchKeywords.clear()
+        val rawKws = settings.rssWatchKeywordsJson
+        if (rawKws != null) {
+            try {
+                val arr = JSONArray(rawKws)
+                for (i in 0 until arr.length()) {
+                    val kw = arr.optString(i).trim()
+                    if (kw.isNotBlank() && rssWatchKeywords.none { it.equals(kw, ignoreCase = true) }) {
+                        rssWatchKeywords.add(kw)
+                    }
+                }
+            } catch (_: Exception) {}
+        } else {
+            rssWatchKeywords.addAll(listOf("1080p", "2160p"))
+        }
+    }
+
+    private fun persistRssFeeds() {
+        val arr = JSONArray()
+        rssFeeds.forEach { f ->
+            arr.put(
+                JSONObject()
+                    .put("id", f.id)
+                    .put("title", f.title)
+                    .put("url", f.url)
+                    .put("enabled", f.enabled)
+                    .put("lastSyncMs", f.lastSyncMs)
+                    .put("lastItemCount", f.lastItemCount)
+                    .put("lastError", f.lastError)
+            )
+        }
+        settings.setRssFeedsJson(arr.toString())
+    }
+
+    private fun persistRssKeywords() {
+        val arr = JSONArray()
+        rssWatchKeywords.forEach { arr.put(it) }
+        settings.setRssWatchKeywordsJson(arr.toString())
+    }
+
+    fun addRssFeed(title: String, rawUrl: String) {
+        val cleanUrl = rawUrl.trim()
+        if (!cleanUrl.startsWith("http://", ignoreCase = true) &&
+            !cleanUrl.startsWith("https://", ignoreCase = true)
+        ) {
+            emitToast(str(R.string.toast_rss_invalid_url))
+            return
+        }
+        if (rssFeeds.any { it.url.equals(cleanUrl, ignoreCase = true) }) {
+            emitToast(str(R.string.toast_rss_feed_exists))
+            return
+        }
+        val cleanTitle = title.trim().ifBlank {
+            runCatching { Uri.parse(cleanUrl).host.orEmpty().removePrefix("www.") }
+                .getOrDefault("")
+                .ifBlank { cleanUrl }
+        }
+        val feed = RssFeedSource(
+            id = UUID.randomUUID().toString(),
+            title = cleanTitle,
+            url = cleanUrl,
+            enabled = true
+        )
+        rssFeeds.add(0, feed)
+        persistRssFeeds()
+        emitToast(str(R.string.toast_rss_feed_added, cleanTitle))
+        refreshRssFeeds(silent = true)
+    }
+
+    fun toggleRssFeed(feedId: String, enabled: Boolean) {
+        val idx = rssFeeds.indexOfFirst { it.id == feedId }
+        if (idx >= 0) {
+            rssFeeds[idx] = rssFeeds[idx].copy(enabled = enabled)
+            persistRssFeeds()
+        }
+    }
+
+    fun removeRssFeed(feedId: String) {
+        rssFeeds.removeAll { it.id == feedId }
+        rssItems.removeAll { it.feedId == feedId }
+        if (rssSelectedFeedId == feedId) rssSelectedFeedId = "all"
+        persistRssFeeds()
+    }
+
+    private fun recomputeRssKeywordMatches() {
+        val kws = rssWatchKeywords.toList()
+        for (i in rssItems.indices) {
+            val cur = rssItems[i]
+            val matched = RssRepository.matchWatchKeywords(cur.title, cur.videoCode, kws)
+            if (matched != cur.matchedKeywords) {
+                rssItems[i] = cur.copy(matchedKeywords = matched)
+            }
+        }
+    }
+
+    fun addRssWatchKeyword(rawKeyword: String) {
+        val parts = rawKeyword.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.isEmpty()) return
+        var addedAny = ""
+        for (kw in parts) {
+            if (rssWatchKeywords.none { it.equals(kw, ignoreCase = true) }) {
+                rssWatchKeywords.add(kw)
+                if (addedAny.isEmpty()) addedAny = kw
+            }
+        }
+        if (addedAny.isNotEmpty()) {
+            persistRssKeywords()
+            recomputeRssKeywordMatches()
+            emitToast(str(R.string.toast_rss_keyword_added, addedAny))
+        }
+    }
+
+    fun removeRssWatchKeyword(keyword: String) {
+        rssWatchKeywords.removeAll { it.equals(keyword, ignoreCase = true) }
+        persistRssKeywords()
+        recomputeRssKeywordMatches()
+    }
+
+    fun refreshRssFeeds(silent: Boolean = false) {
+        val activeFeeds = rssFeeds.filter { it.enabled }
+        if (activeFeeds.isEmpty()) {
+            if (!silent) emitToast(str(R.string.rss_empty_no_feeds))
+            return
+        }
+        rssRefreshJob?.cancel()
+        val keywordsSnap = rssWatchKeywords.toList()
+        rssRefreshJob = viewModelScope.launch {
+            isLoadingRss = true
+            try {
+                val results = activeFeeds.map { feed ->
+                    async {
+                        try {
+                            val items = RssRepository.fetchFeedItems(feed, keywordsSnap)
+                            Triple(feed.id, items, "")
+                        } catch (e: Exception) {
+                            Triple(feed.id, emptyList<RssFeedItem>(), e.message ?: "Error")
+                        }
+                    }
+                }.awaitAll()
+
+                val now = System.currentTimeMillis()
+                val combined = mutableListOf<RssFeedItem>()
+                val seenKeys = HashSet<String>()
+
+                for ((feedId, items, err) in results) {
+                    val fIdx = rssFeeds.indexOfFirst { it.id == feedId }
+                    if (fIdx >= 0) {
+                        rssFeeds[fIdx] = rssFeeds[fIdx].copy(
+                            lastSyncMs = now,
+                            lastItemCount = items.size,
+                            lastError = err
+                        )
+                    }
+                    for (item in items) {
+                        val dedupKey = item.infoHash.ifBlank { item.magnet.ifBlank { item.id } }
+                        if (seenKeys.add(dedupKey)) {
+                            combined.add(item)
+                        }
+                    }
+                }
+                persistRssFeeds()
+
+                combined.sortWith(
+                    compareByDescending<RssFeedItem> { it.isMatched }
+                        .thenByDescending { it.pubDateMs }
+                        .thenByDescending { it.seeders ?: -1 }
+                )
+
+                rssItems.clear()
+                rssItems.addAll(combined)
+
+                if (!silent) {
+                    val matchCount = combined.count { it.isMatched }
+                    emitToast(str(R.string.toast_rss_refreshed, combined.size, matchCount))
+                }
+            } finally {
+                isLoadingRss = false
+            }
+        }
+    }
+
+    fun filteredRssItems(): List<RssFeedItem> {
+        val qTokens = rssSearchFilter.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return rssItems.filter { item ->
+            if (rssOnlyMatched && !item.isMatched) return@filter false
+            if (rssSelectedFeedId != "all" && item.feedId != rssSelectedFeedId) return@filter false
+            if (qTokens.isNotEmpty()) {
+                val hay = "${item.title} ${item.videoCode} ${item.feedTitle}".lowercase()
+                if (!qTokens.all { hay.contains(it) }) return@filter false
+            }
+            true
+        }
     }
 }

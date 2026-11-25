@@ -229,3 +229,73 @@ data class UserscriptMenuCmd(
     val cmdId: String,
     val caption: String
 )
+
+enum class DownloadState {
+    QUEUED,
+    DOWNLOADING,
+    COMPLETED,
+    FAILED,
+    CANCELLED
+}
+
+enum class DownloadCategory {
+    BROWSER,
+    SUBTITLE,
+    TORRENT
+}
+
+data class DownloadRecord(
+    val id: String,
+    val fileName: String,
+    val url: String,
+    val mimeType: String = "application/octet-stream",
+    val category: DownloadCategory = DownloadCategory.BROWSER,
+    val state: DownloadState = DownloadState.QUEUED,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val speedBytesPerSec: Long = 0L,
+    val localPath: String = "",
+    val contentUri: String = "",
+    val referer: String = "",
+    val subtitleTargetLang: String = "",
+    val errorMessage: String = "",
+    val createdAtMs: Long = System.currentTimeMillis()
+) {
+    val progressPct: Int
+        get() = when {
+            state == DownloadState.COMPLETED -> 100
+            totalBytes > 0L -> ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+            else -> 0
+        }
+}
+
+data class RssFeedSource(
+    val id: String,
+    val title: String,
+    val url: String,
+    val enabled: Boolean = true,
+    val lastSyncMs: Long = 0L,
+    val lastItemCount: Int = 0,
+    val lastError: String = ""
+)
+
+data class RssFeedItem(
+    val id: String,
+    val feedId: String,
+    val feedTitle: String,
+    val title: String,
+    val magnet: String,
+    val torrentUrl: String = "",
+    val pageUrl: String = "",
+    val infoHash: String = "",
+    val sizeBytes: Long = 0L,
+    val seeders: Int? = null,
+    val leechers: Int? = null,
+    val pubDateMs: Long = 0L,
+    val videoCode: String = "",
+    val qFlags: QualityFlags = QualityFlags(),
+    val matchedKeywords: List<String> = emptyList()
+) {
+    val isMatched: Boolean
+        get() = matchedKeywords.isNotEmpty()
+}

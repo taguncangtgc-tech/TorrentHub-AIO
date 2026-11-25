@@ -75,6 +75,7 @@ fun TorrentScreen(vm: AppViewModel) {
 
     var showSourcesSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
+    var showMagnetBuilder by remember { mutableStateOf(false) }
     var whatsLinkTarget by remember { mutableStateOf<TorrentItem?>(null) }
     var threeSourceCode by remember { mutableStateOf<String?>(null) }
     var bypassTarget by remember { mutableStateOf<SourceStatus?>(null) }
@@ -93,8 +94,89 @@ fun TorrentScreen(vm: AppViewModel) {
 
     val selectedList = vm.selectedMagnets.filterValues { it }.keys.toList()
     val activeSourceCount = TorrentRepository.SOURCES.count { vm.enabledSources[it.id] == true }
+    val rssMatchedBadge = vm.rssMatchedCount
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Mode Switcher: Torrent Search (16 Sites) vs RSS Feed Monitor
+        Surface(color = p.barSurface) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val isSearchTab = vm.torrentSubTab == 0
+                Surface(
+                    color = if (isSearchTab) MaterialTheme.colorScheme.primary else p.subCardSurface,
+                    shape = RoundedCornerShape(9.dp),
+                    border = if (isSearchTab) null else BorderStroke(1.dp, p.borderColor),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { vm.torrentSubTab = 0 }
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.torrent_mode_search),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSearchTab) MaterialTheme.colorScheme.onPrimary else p.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                val isRssTab = vm.torrentSubTab == 1
+                Surface(
+                    color = if (isRssTab) MaterialTheme.colorScheme.primary else p.subCardSurface,
+                    shape = RoundedCornerShape(9.dp),
+                    border = if (isRssTab) null else BorderStroke(1.dp, p.borderColor),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { vm.torrentSubTab = 1 }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.torrent_mode_rss),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isRssTab) MaterialTheme.colorScheme.onPrimary else p.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (rssMatchedBadge > 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Surface(
+                                color = if (isRssTab) Color.White.copy(alpha = 0.24f) else Color(0xFF15803D),
+                                shape = CircleShape
+                            ) {
+                                Text(
+                                    text = rssMatchedBadge.toString(),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (vm.torrentSubTab == 1) {
+            Box(modifier = Modifier.weight(1f)) {
+                RssMonitorSection(vm = vm)
+            }
+        } else {
         // Top Search & Controls Surface
         Surface(
             color = p.barSurface,
@@ -169,6 +251,10 @@ fun TorrentScreen(vm: AppViewModel) {
                         onClick = { showSortSheet = true },
                         label = { Text(sortLabelShortComposable(vm.torrentSortMode), fontSize = 12.sp) },
                         leadingIcon = { Icon(Icons.Default.Sort, null, Modifier.size(16.dp)) }
+                    )
+                    AssistChip(
+                        onClick = { showMagnetBuilder = true },
+                        label = { Text(stringResource(R.string.magnet_builder_chip), fontSize = 12.sp) }
                     )
                     FilterChip(
                         selected = vm.hideDeadTorrents,
@@ -313,7 +399,7 @@ fun TorrentScreen(vm: AppViewModel) {
                             onWhatsLink = { whatsLinkTarget = item },
                             onThreeSource = { if (item.videoCode.isNotBlank()) threeSourceCode = item.videoCode },
                             onCopy = {
-                                copyToClipboard(context, item.magnet)
+                                copyToClipboard(context, vm.prepareMagnet(item.magnet))
                                 vm.emitToast(vm.str(R.string.toast_link_copied, item.title.take(45)))
                             },
                             onSendPikPak = { vm.sendMagnetsToPikPak(listOf(item.magnet)) },
@@ -359,7 +445,8 @@ fun TorrentScreen(vm: AppViewModel) {
                             }
                             Button(
                                 onClick = {
-                                    copyToClipboard(context, selectedList.joinToString("\n"))
+                                    val enrichedAll = selectedList.joinToString("\n") { vm.prepareMagnet(it) }
+                                    copyToClipboard(context, enrichedAll)
                                     vm.emitToast(vm.str(R.string.toast_links_copied, selectedList.size))
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
@@ -379,6 +466,14 @@ fun TorrentScreen(vm: AppViewModel) {
                 }
             }
         }
+        }
+    }
+
+    if (showMagnetBuilder) {
+        MagnetBuilderDialog(
+            vm = vm,
+            onDismiss = { showMagnetBuilder = false }
+        )
     }
 
     // Bottom Sheet: Source Toggle (16 Sites)

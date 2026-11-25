@@ -57,7 +57,7 @@
     <string name="theme_amoled">AMOLED 纯黑</string>
     <string name="theme_amoled_desc">纯黑 #000000 省电护眼</string>
 
-    <string name="settings_section_browser">🧭 浏览器手势导航</string>
+    <string name="settings_section_browser">🧭 浏览器、广告拦截与手势导航</string>
     <string name="settings_browser_swipe">浏览器内滑动切换标签页</string>
     <string name="settings_browser_swipe_desc">允许在浏览器页面内左右滑动以切换底部标签页</string>
 
@@ -409,4 +409,114 @@
     <string name="toast_autopair_video_set">🎬 已锁定目标视频: %1$s</string>
     <string name="toast_autopair_saved">✅ 已同名配对保存字幕: %1$s</string>
     <string name="toast_enter_provider_api_key">请先输入 %1$s 的 API 密钥（或切换为免费 Google 翻译）。</string>
+
+    <!-- Phase 4: Ad-Blocker, Internal Download Manager, Custom Trackers & RSS Monitor -->
+    <string name="cd_downloads">下载管理</string>
+    <string name="settings_adblock_enable">浏览器广告拦截与防弹窗</string>
+    <string name="settings_adblock_enable_desc">在内置 WebView 中拦截广告域名、追踪器及恶意新窗口弹窗</string>
+    <string name="settings_antipopup_strict">严格拦截跨域跳转与恶意弹窗</string>
+    <string name="settings_antipopup_strict_desc">阻止未经操作自动跳转到外部广告站点的行为</string>
+    <string name="settings_adblock_stats">🛡️ 累计已拦截广告与弹窗: %1$d</string>
+    <string name="settings_adblock_reset">重置计数</string>
+    <string name="browser_adblock_badge_on">🛡️ %1$d</string>
+    <string name="browser_adblock_badge_off">🛡️ 关</string>
+    <string name="browser_btn_downloads">📥 %1$d</string>
+    <string name="browser_btn_downloads_idle">📥</string>
+
+    <string name="dl_notif_channel_name">文件与字幕下载</string>
+    <string name="dl_notif_channel_desc">显示浏览器文件与字幕下载的实时进度及完成通知</string>
+    <string name="dl_notif_progress_title">⬇️ %1$s (%2$d%%)</string>
+    <string name="dl_notif_progress_indeterminate">⬇️ 正在下载 %1$s…</string>
+    <string name="dl_notif_done_title">✅ 下载完成</string>
+    <string name="dl_notif_failed_title">❌ 下载失败</string>
+    <string name="dl_title">📥 内置下载管理器</string>
+    <string name="dl_subtitle">管理浏览器直接下载与字幕下载记录（集成系统通知）</string>
+    <string name="dl_filter_all">全部 (%1$d)</string>
+    <string name="dl_filter_active">进行中 (%1$d)</string>
+    <string name="dl_filter_completed">已完成 (%1$d)</string>
+    <string name="dl_btn_clear_done">清除已完成</string>
+    <string name="dl_empty_state">暂无来自浏览器或字幕库的下载记录。</string>
+    <string name="dl_cat_browser">🌐 浏览器</string>
+    <string name="dl_cat_subtitle">💬 字幕</string>
+    <string name="dl_cat_torrent">🧲 种子</string>
+    <string name="dl_state_queued">⏳ 排队中…</string>
+    <string name="dl_state_downloading">⬇️ 下载中 %1$d%%</string>
+    <string name="dl_state_completed">✅ 已完成</string>
+    <string name="dl_state_failed">❌ 失败: %1$s</string>
+    <string name="dl_state_cancelled">⚪ 已取消</string>
+    <string name="dl_btn_open">打开文件</string>
+    <string name="dl_btn_cancel">⏹️ 取消</string>
+    <string name="dl_btn_retry">重试</string>
+    <string name="dl_btn_delete">删除</string>
+    <string name="dl_btn_send_gemini">✨ AI翻译</string>
+    <string name="sub_btn_download_mgr">⬇️ 下载</string>
+    <string name="chooser_open_file">选择打开方式…</string>
+    <string name="toast_dl_started">⬇️ 开始下载: %1$s</string>
+    <string name="toast_dl_completed">✅ 下载完成: %1$s</string>
+    <string name="toast_dl_failed">❌ 下载 %1$s 失败: %2$s</string>
+    <string name="toast_dl_deleted">🗑️ 已删除记录与本地文件: %1$s</string>
+    <string name="toast_dl_cleared">🧹 已清理完成的下载历史。</string>
+    <string name="toast_dl_file_missing">⚠️ 本地存储中未找到该文件。</string>
+    <string name="toast_dl_no_app">⚠️ 未找到可打开此类型文件的应用。</string>
+
+    <string name="settings_section_trackers">🧲 自动追加自定义 Tracker 列表</string>
+    <string name="settings_trackers_desc">在复制、外部打开或发送到 PikPak 前，自动为磁力链接追加公共及自定义 Tracker 节点</string>
+    <string name="settings_trackers_enable">启用磁力 Tracker 自动追加</string>
+    <string name="settings_trackers_enable_desc">当前生效: 共 %1$d 个去重 Tracker 节点</string>
+    <string name="settings_trackers_url_label">公共 Tracker 列表更新地址 (URL)</string>
+    <string name="settings_trackers_btn_update">🔄 从网址更新</string>
+    <string name="settings_trackers_updating">⏳ 更新中…</string>
+    <string name="settings_trackers_last_updated">上次更新: %1$s（%2$d 个节点）</string>
+    <string name="settings_trackers_never_updated">当前使用内置列表（%1$d 个公共节点）</string>
+    <string name="settings_trackers_custom_label">用户自定义 Tracker 列表（每行 1 个）</string>
+    <string name="settings_trackers_custom_placeholder">udp://tracker.example.com:1337/announce\nhttps://tracker.example.org/announce</string>
+    <string name="toast_trackers_updated">✅ 成功更新 %1$d 个公共 Tracker 节点！</string>
+    <string name="toast_trackers_update_failed">❌ 更新 Tracker 失败: %1$s</string>
+    <string name="toast_trackers_reset">🔄 Tracker 设置已恢复为默认列表。</string>
+
+    <string name="magnet_builder_chip">🧲 磁力构建器</string>
+    <string name="magnet_builder_title">🧲 磁力构建器与 Tracker 注入</string>
+    <string name="magnet_builder_desc">输入 InfoHash (40位Hex / 32位Base32) 或原始磁力链接，自动生成包含 %1$d 个活跃 Tracker 的完整磁力。</string>
+    <string name="magnet_builder_hash_label">InfoHash 哈希值或磁力链接</string>
+    <string name="magnet_builder_hash_placeholder">例如: a1b2c3d4… 或 magnet:?xt=urn:btih:…</string>
+    <string name="magnet_builder_name_label">资源名称 / 标题（可选）</string>
+    <string name="magnet_builder_preview_label">生成磁力预览（含 %1$d 个 Tracker）：</string>
+    <string name="magnet_builder_invalid">请输入有效的 40 位十六进制 / 32 位 Base32 哈希值或磁力链接。</string>
+
+    <string name="torrent_mode_search">🔍 聚合搜索 (16站)</string>
+    <string name="torrent_mode_rss">📡 RSS 订阅监控</string>
+    <string name="rss_btn_manage_feeds">RSS 源 (%1$d)</string>
+    <string name="rss_btn_keywords">🎯 监控词 (%1$d)</string>
+    <string name="rss_btn_refresh">刷新</string>
+    <string name="rss_filter_all">全部发布 (%1$d)</string>
+    <string name="rss_filter_matched">🎯 命中关键词 (%1$d)</string>
+    <string name="rss_search_placeholder">筛选 RSS 发布标题…</string>
+    <string name="rss_empty_no_feeds">请先添加或启用磁力站点 RSS 订阅地址，然后点击刷新。</string>
+    <string name="rss_empty_loading">⏳ 正在拉取已启用 RSS 源的最新资源…</string>
+    <string name="rss_empty_no_match">暂无匹配当前筛选条件或监控关键词的 RSS 资源。</string>
+    <string name="rss_match_badge">🎯 命中: %1$s</string>
+    <string name="rss_btn_copy_magnet">📋 复制磁力</string>
+    <string name="rss_btn_quick_stream">⚡ 极速云播</string>
+    <string name="rss_btn_download_sub">💬 下载字幕</string>
+    <string name="rss_btn_dl_torrent">⬇️ 种子文件</string>
+    <string name="rss_feeds_dialog_title">📡 管理磁力 RSS 订阅源</string>
+    <string name="rss_feeds_name_label">站点名称 / 备注（可选）</string>
+    <string name="rss_feeds_url_label">RSS / Atom XML 订阅地址</string>
+    <string name="rss_feeds_btn_add">➕ 添加订阅源</string>
+    <string name="rss_feeds_presets_label">常用预设源（点击一键添加）：</string>
+    <string name="rss_keywords_dialog_title">🎯 自动匹配监控关键词</string>
+    <string name="rss_keywords_desc">包含以下任意关键词或番号的新发布 RSS 资源将自动高亮标记。</string>
+    <string name="rss_keywords_input_placeholder">例如: 1080p, One Piece, IPX, HEVC…</string>
+    <string name="rss_keywords_btn_add">添加</string>
+    <string name="rss_keywords_empty">暂无监控关键词，请在上方输入添加！</string>
+    <string name="rss_sub_dialog_title">💬 快捷下载字幕: %1$s</string>
+    <string name="rss_sub_dialog_searching">⏳ 正在匹配搜索“%1$s”的字幕…</string>
+    <string name="rss_sub_dialog_empty">暂未找到“%1$s”的即时匹配字幕。</string>
+    <string name="rss_sub_btn_download_now">⬇️ 下载</string>
+    <string name="rss_sub_btn_open_tab">🔍 在字幕页打开</string>
+    <string name="toast_rss_feed_added">📡 已添加 RSS 订阅源: %1$s</string>
+    <string name="toast_rss_feed_exists">⚠️ 该 RSS 订阅地址已存在。</string>
+    <string name="toast_rss_invalid_url">⚠️ 请输入以 http:// 或 https:// 开头的有效地址。</string>
+    <string name="toast_rss_refreshed">📡 已加载 %1$d 条 RSS 发布（命中监控词 %2$d 条）！</string>
+    <string name="toast_rss_keyword_added">🎯 已添加监控关键词: %1$s</string>
 </resources>

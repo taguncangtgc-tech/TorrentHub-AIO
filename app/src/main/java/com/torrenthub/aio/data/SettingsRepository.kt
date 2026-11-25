@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.torrenthub.aio.model.PikPakCredentials
+import com.torrenthub.aio.model.SubtitleProvider
+import com.torrenthub.aio.model.TranslationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -119,6 +121,100 @@ class SettingsRepository private constructor(context: Context) {
     fun setBrowserTabSwipeEnabled(enabled: Boolean) {
         repoScope.launch {
             dataStore.edit { it[Keys.BROWSER_TAB_SWIPE] = enabled }
+        }
+    }
+
+    /* ================= PHASE 3: SUBTITLE SOURCE, AUTO-PAIRING & CUSTOM TRANSLATOR ================= */
+    val subtitleProvider: SubtitleProvider
+        get() = SubtitleProvider.fromId(current[Keys.SUB_PROVIDER])
+
+    val autoPairSubtitleVideo: Boolean
+        get() = current[Keys.SUB_AUTO_PAIR] ?: false
+
+    val autoPairFolderUri: String
+        get() = current[Keys.SUB_PAIR_FOLDER_URI] ?: ""
+
+    val autoPairFolderName: String
+        get() = current[Keys.SUB_PAIR_FOLDER_NAME] ?: ""
+
+    val autoPairVideoName: String
+        get() = current[Keys.SUB_PAIR_VIDEO_NAME] ?: ""
+
+    val translationProvider: TranslationProvider
+        get() = TranslationProvider.fromId(
+            current[Keys.TR_PROVIDER],
+            fallbackToGemini = (current[Keys.GST_KEYS]?.isNotBlank() == true)
+        )
+
+    val googleTranslateEndpoint: String
+        get() = current[Keys.TR_GOOGLE_ENDPOINT] ?: GeminiEngine.DEFAULT_GOOGLE_GTX_ENDPOINT
+
+    val geminiEndpoint: String
+        get() = current[Keys.TR_GEMINI_ENDPOINT] ?: GeminiEngine.DEFAULT_GEMINI_ENDPOINT
+
+    val deeplApiKey: String
+        get() = current[Keys.TR_DEEPL_KEY] ?: ""
+
+    val deeplModel: String
+        get() = current[Keys.TR_DEEPL_MODEL] ?: "prefer_quality_optimized"
+
+    val deeplEndpoint: String
+        get() = current[Keys.TR_DEEPL_ENDPOINT] ?: ""
+
+    val openaiApiKey: String
+        get() = current[Keys.TR_OPENAI_KEY] ?: ""
+
+    val openaiModel: String
+        get() = current[Keys.TR_OPENAI_MODEL] ?: "gpt-4o-mini"
+
+    val openaiEndpoint: String
+        get() = current[Keys.TR_OPENAI_ENDPOINT] ?: GeminiEngine.DEFAULT_OPENAI_ENDPOINT
+
+    fun setSubtitleProvider(provider: SubtitleProvider) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.SUB_PROVIDER] = provider.id }
+        }
+    }
+
+    fun setAutoPairSubtitleVideo(enabled: Boolean) {
+        repoScope.launch {
+            dataStore.edit { it[Keys.SUB_AUTO_PAIR] = enabled }
+        }
+    }
+
+    fun saveAutoPairTarget(folderUri: String, folderName: String, videoName: String) {
+        repoScope.launch {
+            dataStore.edit { prefs ->
+                prefs[Keys.SUB_PAIR_FOLDER_URI] = folderUri
+                prefs[Keys.SUB_PAIR_FOLDER_NAME] = folderName
+                prefs[Keys.SUB_PAIR_VIDEO_NAME] = videoName
+            }
+        }
+    }
+
+    fun saveTranslationProviderConfig(
+        provider: TranslationProvider,
+        googleEndpoint: String,
+        geminiEndpoint: String,
+        deeplKey: String,
+        deeplModel: String,
+        deeplEndpoint: String,
+        openaiKey: String,
+        openaiModel: String,
+        openaiEndpoint: String
+    ) {
+        repoScope.launch {
+            dataStore.edit { prefs ->
+                prefs[Keys.TR_PROVIDER] = provider.id
+                prefs[Keys.TR_GOOGLE_ENDPOINT] = googleEndpoint.trim()
+                prefs[Keys.TR_GEMINI_ENDPOINT] = geminiEndpoint.trim()
+                prefs[Keys.TR_DEEPL_KEY] = deeplKey.trim()
+                prefs[Keys.TR_DEEPL_MODEL] = deeplModel.trim()
+                prefs[Keys.TR_DEEPL_ENDPOINT] = deeplEndpoint.trim()
+                prefs[Keys.TR_OPENAI_KEY] = openaiKey.trim()
+                prefs[Keys.TR_OPENAI_MODEL] = openaiModel.trim()
+                prefs[Keys.TR_OPENAI_ENDPOINT] = openaiEndpoint.trim()
+            }
         }
     }
 
@@ -387,6 +483,22 @@ class SettingsRepository private constructor(context: Context) {
         val BROWSER_LAST_URL = stringPreferencesKey("browser_last_url")
         val BROWSER_ADSHIELD = booleanPreferencesKey("browser_adshield")
         val BROWSER_BOOKMARKS_V1 = stringPreferencesKey("browser_bookmarks_v1")
+
+        val SUB_PROVIDER = stringPreferencesKey("sub_provider")
+        val SUB_AUTO_PAIR = booleanPreferencesKey("sub_auto_pair")
+        val SUB_PAIR_FOLDER_URI = stringPreferencesKey("sub_pair_folder_uri")
+        val SUB_PAIR_FOLDER_NAME = stringPreferencesKey("sub_pair_folder_name")
+        val SUB_PAIR_VIDEO_NAME = stringPreferencesKey("sub_pair_video_name")
+
+        val TR_PROVIDER = stringPreferencesKey("tr_provider")
+        val TR_GOOGLE_ENDPOINT = stringPreferencesKey("tr_google_endpoint")
+        val TR_GEMINI_ENDPOINT = stringPreferencesKey("tr_gemini_endpoint")
+        val TR_DEEPL_KEY = stringPreferencesKey("tr_deepl_key")
+        val TR_DEEPL_MODEL = stringPreferencesKey("tr_deepl_model")
+        val TR_DEEPL_ENDPOINT = stringPreferencesKey("tr_deepl_endpoint")
+        val TR_OPENAI_KEY = stringPreferencesKey("tr_openai_key")
+        val TR_OPENAI_MODEL = stringPreferencesKey("tr_openai_model")
+        val TR_OPENAI_ENDPOINT = stringPreferencesKey("tr_openai_endpoint")
     }
 
     companion object {

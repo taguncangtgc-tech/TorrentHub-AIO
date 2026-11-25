@@ -66,6 +66,43 @@ data class ThreeSourceResult(
     val referer: String = ""
 )
 
+enum class SubtitleProvider(val id: String, val label: String, val colorHex: Long) {
+    ALL("all", "All", 0xFF0D9488),
+    XUNLEI("xunlei", "Xunlei", 0xFF0284C7),
+    SUBTITLECAT("subtitlecat", "SubtitleCat", 0xFFD97706),
+    OPENSUBTITLES("opensubtitles", "OpenSubtitles", 0xFF059669),
+    SUBDL("subdl", "SubDL", 0xFF7C3AED);
+
+    companion object {
+        fun fromId(id: String?): SubtitleProvider =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: ALL
+    }
+}
+
+enum class TranslationProvider(val id: String) {
+    GOOGLE_FREE("google_free"),
+    GEMINI("gemini"),
+    DEEPL("deepl"),
+    OPENAI("openai");
+
+    companion object {
+        fun fromId(id: String?, fallbackToGemini: Boolean = false): TranslationProvider {
+            if (id.isNullOrBlank()) {
+                return if (fallbackToGemini) GEMINI else GOOGLE_FREE
+            }
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) }
+                ?: if (fallbackToGemini) GEMINI else GOOGLE_FREE
+        }
+    }
+}
+
+data class SafVideoFile(
+    val uriString: String,
+    val documentId: String,
+    val name: String,
+    val sizeBytes: Long = 0L
+)
+
 data class SubtitleItem(
     val idKey: String,
     val name: String,
@@ -73,7 +110,9 @@ data class SubtitleItem(
     val url: String,
     val sizeBytes: Long = 0L,
     val language: String = "",
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val sourceId: String = "xunlei",
+    val sourceName: String = "Xunlei"
 )
 
 data class GeminiJob(

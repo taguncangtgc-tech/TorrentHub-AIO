@@ -8,15 +8,13 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
@@ -31,15 +29,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.torrenthub.aio.R
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.GeminiEngine
+import com.torrenthub.aio.model.GeminiJob
+import com.torrenthub.aio.model.TranslationProvider
+import com.torrenthub.aio.util.SubtitleCharset
+import com.torrenthub.aio.util.SubtitleTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+@Composable
+fun translationProviderTitle(provider: TranslationProvider): String = when (provider) {
+    TranslationProvider.GOOGLE_FREE -> stringResource(R.string.tr_provider_google_free)
+    TranslationProvider.GEMINI -> stringResource(R.string.tr_provider_gemini)
+    TranslationProvider.DEEPL -> stringResource(R.string.tr_provider_deepl)
+    TranslationProvider.OPENAI -> stringResource(R.string.tr_provider_openai)
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -50,13 +58,18 @@ fun GeminiScreen(vm: AppViewModel) {
 
     var showAdvanced by remember { mutableStateOf(false) }
     var modelDropdownOpen by remember { mutableStateOf(false) }
+    var deeplModelDropdownOpen by remember { mutableStateOf(false) }
     var targetLangDropdownOpen by remember { mutableStateOf(false) }
     var modeDropdownOpen by remember { mutableStateOf(false) }
     var nameModeDropdownOpen by remember { mutableStateOf(false) }
 
+    var pendingSaveFileName by remember { mutableStateOf("subtitle.srt") }
     var pendingSaveContent by remember { mutableStateOf<String?>(null) }
-    var previewJobTitle by remember { mutableStateOf<String?>(null) }
-    var previewJobResult by remember { mutableStateOf("") }
+    var showAutoPairSaveDialog by remember { mutableStateOf(false) }
+    var showAutoPairPickerDialog by remember { mutableStateOf(false) }
+
+    var activeEditorJob by remember { mutableStateOf<GeminiJob?>(null) }
+    var activeEditorStartTranslated by remember { mutableStateOf(false) }
     var pendingLimitLinesAfterPerm by remember { mutableStateOf<Int?>(null) }
 
     val notifPermLauncher = rememberLauncherForActivityResult(
@@ -94,7 +107,8 @@ fun GeminiScreen(vm: AppViewModel) {
                             fileName = cursor.getString(nameIndex) ?: fileName
                         }
                     }
-                    val content = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.readText().orEmpty()
+                    val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: ByteArray(0)
+                    val content = SubtitleTools.decodeWithCharset(bytes, SubtitleCharset.AUTO)
                     if (content.isNotBlank()) {
                         withContext(Dispatchers.Main) {
                             vm.addGeminiJob(fileName, content)
@@ -114,14 +128,40 @@ fun GeminiScreen(vm: AppViewModel) {
         if (uri != null && txt != null) {
             scope.launch(Dispatchers.IO) {
                 try {
+                    val outBytes = SubtitleTools.normalizeToUtf8Bytes(txt, includeBom = txt.startsWith("\uFEFF"))
                     context.contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(txt.toByteArray(Charsets.UTF_8))
+                        out.write(outBytes)
                     }
                     vm.emitToast(vm.str(R.string.toast_translation_saved))
                 } catch (e: Exception) {
                     vm.emitToast(vm.str(R.string.toast_save_failed, e.message ?: "Error"))
                 }
             }
+        }
+    }
+
+    fun requestSaveTranslated(fileName: String, content: String) {
+        pendingSaveFileName = fileName
+        pendingSaveContent = content
+        if (vm.autoPairSubtitleVideo) {
+            if (vm.autoPairFolderUri.isNotBlank() && vm.autoPairVideoName.isNotBlank()) {
+                scope.launch {
+                    try {
+                        val saved = vm.saveSubtitlePairedToSaf(
+                            videoFileName = vm.autoPairVideoName,
+                            subtitleNameOrExt = fileName,
+                            contentUtf8 = content
+                        )
+                        vm.emitToast(vm.str(R.string.toast_autopair_saved, saved))
+                    } catch (_: Exception) {
+                        showAutoPairSaveDialog = true
+                    }
+                }
+            } else {
+                showAutoPairSaveDialog = true
+            }
+        } else {
+            saveResultLauncher.launch(fileName)
         }
     }
 
@@ -140,7 +180,7 @@ fun GeminiScreen(vm: AppViewModel) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Card 1: API Keys, Model & Target Language
+        // Card 1: Translation Provider, API Keys, Model & Target Language
         Surface(color = p.cardSurface, shape = RoundedCornerShape(12.dp), border = p.cardBorder) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -150,76 +190,291 @@ fun GeminiScreen(vm: AppViewModel) {
                     color = p.textPrimary
                 )
 
-                OutlinedTextField(
-                    value = vm.geminiKeysRaw,
-                    onValueChange = {
-                        vm.geminiKeysRaw = it
-                        vm.saveGeminiSettings()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    maxLines = 4,
-                    label = { Text(stringResource(R.string.gemini_keys_label)) },
-                    placeholder = { Text(stringResource(R.string.gemini_keys_placeholder), fontSize = 12.sp) },
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                )
-
+                // Provider Selector Chips
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        stringResource(R.string.gemini_keys_detected, freeCount, orCount),
-                        fontSize = 11.sp,
-                        color = p.textMuted,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(
-                            onClick = { vm.testGeminiKeys() },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
-                        }
-                        OutlinedButton(
-                            onClick = { vm.refreshGeminiModels() },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(stringResource(R.string.gemini_btn_check_models), fontSize = 11.5.sp)
-                        }
+                    TranslationProvider.entries.forEach { prov ->
+                        FilterChip(
+                            selected = vm.translationProvider == prov,
+                            onClick = { vm.updateTranslationProvider(prov) },
+                            label = {
+                                Text(
+                                    text = translationProviderTitle(prov),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (vm.translationProvider == prov) FontWeight.ExtraBold else FontWeight.Medium
+                                )
+                            }
+                        )
                     }
                 }
 
-                // Model Selector
-                ExposedDropdownMenuBox(
-                    expanded = modelDropdownOpen,
-                    onExpandedChange = { modelDropdownOpen = it }
-                ) {
-                    OutlinedTextField(
-                        value = vm.geminiModel,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.gemini_model_label)) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownOpen) },
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
-                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = modelDropdownOpen,
-                        onDismissRequest = { modelDropdownOpen = false }
-                    ) {
-                        vm.geminiAvailableModels.forEach { m ->
-                            DropdownMenuItem(
-                                text = { Text(m, fontSize = 13.sp) },
-                                onClick = {
-                                    vm.geminiModel = m
-                                    vm.saveGeminiSettings()
-                                    modelDropdownOpen = false
+                // Dynamic Provider Configuration Fields
+                when (vm.translationProvider) {
+                    TranslationProvider.GOOGLE_FREE -> {
+                        Surface(
+                            color = p.accentGreen.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, p.accentGreen.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.tr_google_free_ready_banner),
+                                    fontSize = 11.5.sp,
+                                    color = p.accentGreen,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedButton(
+                                    onClick = { vm.testGeminiKeys() },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
                                 }
+                            }
+                        }
+                    }
+
+                    TranslationProvider.GEMINI -> {
+                        OutlinedTextField(
+                            value = vm.geminiKeysRaw,
+                            onValueChange = {
+                                vm.geminiKeysRaw = it
+                                vm.saveGeminiSettings()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            maxLines = 4,
+                            label = { Text(stringResource(R.string.gemini_keys_label)) },
+                            placeholder = { Text(stringResource(R.string.gemini_keys_placeholder), fontSize = 12.sp) },
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                stringResource(R.string.gemini_keys_detected, freeCount, orCount),
+                                fontSize = 11.sp,
+                                color = p.textMuted,
+                                modifier = Modifier.weight(1f)
                             )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { vm.testGeminiKeys() },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { vm.refreshGeminiModels() },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.gemini_btn_check_models), fontSize = 11.5.sp)
+                                }
+                            }
+                        }
+
+                        ExposedDropdownMenuBox(
+                            expanded = modelDropdownOpen,
+                            onExpandedChange = { modelDropdownOpen = it }
+                        ) {
+                            OutlinedTextField(
+                                value = vm.geminiModel,
+                                onValueChange = {
+                                    vm.geminiModel = it
+                                    vm.saveGeminiSettings()
+                                },
+                                label = { Text(stringResource(R.string.gemini_model_label)) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownOpen) },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = modelDropdownOpen,
+                                onDismissRequest = { modelDropdownOpen = false }
+                            ) {
+                                vm.geminiAvailableModels.forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text(m, fontSize = 13.sp) },
+                                        onClick = {
+                                            vm.geminiModel = m
+                                            vm.saveGeminiSettings()
+                                            modelDropdownOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    TranslationProvider.DEEPL -> {
+                        OutlinedTextField(
+                            value = vm.deeplApiKey,
+                            onValueChange = {
+                                vm.deeplApiKey = it
+                                vm.saveGeminiSettings()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.tr_api_key_optional_label, "DeepL")) },
+                            placeholder = { Text(stringResource(R.string.tr_api_key_deepl_placeholder), fontSize = 12.sp) },
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        )
+
+                        ExposedDropdownMenuBox(
+                            expanded = deeplModelDropdownOpen,
+                            onExpandedChange = { deeplModelDropdownOpen = it }
+                        ) {
+                            val deeplLabel = if (vm.deeplModel == "latency_optimized") {
+                                stringResource(R.string.tr_deepl_quality_latency)
+                            } else {
+                                stringResource(R.string.tr_deepl_quality_prefer)
+                            }
+                            OutlinedTextField(
+                                value = deeplLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(stringResource(R.string.tr_model_custom_label, "DeepL")) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deeplModelDropdownOpen) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = deeplModelDropdownOpen,
+                                onDismissRequest = { deeplModelDropdownOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tr_deepl_quality_prefer)) },
+                                    onClick = {
+                                        vm.deeplModel = "prefer_quality_optimized"
+                                        vm.saveGeminiSettings()
+                                        deeplModelDropdownOpen = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tr_deepl_quality_latency)) },
+                                    onClick = {
+                                        vm.deeplModel = "latency_optimized"
+                                        vm.saveGeminiSettings()
+                                        deeplModelDropdownOpen = false
+                                    }
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = vm.deeplEndpoint,
+                                onValueChange = {
+                                    vm.deeplEndpoint = it
+                                    vm.saveGeminiSettings()
+                                },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                                placeholder = { Text(GeminiEngine.DEFAULT_DEEPL_FREE_ENDPOINT, fontSize = 11.5.sp) },
+                                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                            )
+                            OutlinedButton(onClick = { vm.testGeminiKeys() }) {
+                                Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
+                            }
+                        }
+                    }
+
+                    TranslationProvider.OPENAI -> {
+                        OutlinedTextField(
+                            value = vm.openaiApiKey,
+                            onValueChange = {
+                                vm.openaiApiKey = it
+                                vm.saveGeminiSettings()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.tr_api_key_optional_label, "OpenAI / Compatible")) },
+                            placeholder = { Text(stringResource(R.string.tr_api_key_openai_placeholder), fontSize = 12.sp) },
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        )
+
+                        OutlinedTextField(
+                            value = vm.openaiEndpoint,
+                            onValueChange = {
+                                vm.openaiEndpoint = it
+                                vm.saveGeminiSettings()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                            placeholder = { Text(GeminiEngine.DEFAULT_OPENAI_ENDPOINT, fontSize = 11.5.sp) },
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                        )
+
+                        ExposedDropdownMenuBox(
+                            expanded = modelDropdownOpen,
+                            onExpandedChange = { modelDropdownOpen = it }
+                        ) {
+                            OutlinedTextField(
+                                value = vm.openaiModel,
+                                onValueChange = {
+                                    vm.openaiModel = it
+                                    vm.saveGeminiSettings()
+                                },
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.tr_model_custom_label, "OpenAI")) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownOpen) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = modelDropdownOpen,
+                                onDismissRequest = { modelDropdownOpen = false }
+                            ) {
+                                vm.openaiAvailableModels.forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text(m, fontSize = 13.sp) },
+                                        onClick = {
+                                            vm.openaiModel = m
+                                            vm.saveGeminiSettings()
+                                            modelDropdownOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)
+                        ) {
+                            OutlinedButton(
+                                onClick = { vm.testGeminiKeys() },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 11.5.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { vm.refreshGeminiModels() },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.gemini_btn_check_models), fontSize = 11.5.sp)
+                            }
                         }
                     }
                 }
@@ -462,6 +717,52 @@ fun GeminiScreen(vm: AppViewModel) {
                     }
                 }
 
+                // Auto-Pairing Local Video (SAF) toggle
+                Surface(
+                    color = p.subCardSurface,
+                    shape = RoundedCornerShape(8.dp),
+                    border = if (p.isLight || p.isAmoled) BorderStroke(1.dp, p.borderColor) else null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAutoPairPickerDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.settings_autopair_enable),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = p.textPrimary
+                            )
+                            Text(
+                                when {
+                                    vm.autoPairVideoName.isNotBlank() -> "🎬 ${vm.autoPairVideoName}"
+                                    vm.autoPairFolderName.isNotBlank() -> "📁 ${vm.autoPairFolderName}"
+                                    else -> stringResource(R.string.settings_autopair_folder_unset)
+                                },
+                                fontSize = 10.5.sp,
+                                color = if (vm.autoPairFolderUri.isNotBlank()) p.accentBlue else p.textMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Switch(
+                            checked = vm.autoPairSubtitleVideo,
+                            onCheckedChange = { enabled ->
+                                vm.updateAutoPairEnabled(enabled)
+                                if (enabled && vm.autoPairFolderUri.isBlank()) {
+                                    showAutoPairPickerDialog = true
+                                }
+                            }
+                        )
+                    }
+                }
+
                 // Auto-upload to PikPak Drive toggle
                 Surface(
                     color = p.subCardSurface,
@@ -584,8 +885,7 @@ fun GeminiScreen(vm: AppViewModel) {
                                 Button(
                                     onClick = {
                                         val res = job.resultContent ?: return@Button
-                                        pendingSaveContent = res
-                                        saveResultLauncher.launch(outName)
+                                        requestSaveTranslated(outName, res)
                                     },
                                     enabled = !job.resultContent.isNullOrBlank(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
@@ -613,13 +913,16 @@ fun GeminiScreen(vm: AppViewModel) {
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        previewJobTitle = outName
-                                        previewJobResult = job.resultContent.orEmpty()
+                                        activeEditorJob = job
+                                        activeEditorStartTranslated = !job.resultContent.isNullOrBlank()
                                     },
-                                    enabled = !job.resultContent.isNullOrBlank(),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Text(stringResource(R.string.gemini_btn_view_result), fontSize = 11.5.sp)
+                                    Text(
+                                        if (!job.resultContent.isNullOrBlank()) stringResource(R.string.gemini_btn_view_result)
+                                        else stringResource(R.string.sub_btn_preview_edit),
+                                        fontSize = 11.5.sp
+                                    )
                                 }
                                 if (!vm.isGeminiRunning && (job.hasSavedProgress || job.pct > 0)) {
                                     TextButton(onClick = { vm.resetSingleGeminiJob(job.id) }) {
@@ -651,65 +954,47 @@ fun GeminiScreen(vm: AppViewModel) {
         }
     }
 
-    if (previewJobTitle != null) {
-        val allResultLines = remember(previewJobResult) { previewJobResult.lines() }
-        val padW = remember(allResultLines.size) { allResultLines.size.toString().length.coerceAtLeast(3) }
-        Dialog(
-            onDismissRequest = { previewJobTitle = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                color = p.barSurface,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, p.borderColor),
-                modifier = Modifier
-                    .fillMaxWidth(0.96f)
-                    .fillMaxHeight(0.88f)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(p.cardSurface)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(previewJobTitle.orEmpty(), fontWeight = FontWeight.Bold, color = p.textPrimary)
-                            Text(stringResource(R.string.gemini_lines_count, allResultLines.size), fontSize = 11.sp, color = p.accentBlue)
-                        }
-                        IconButton(onClick = { previewJobTitle = null }) {
-                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
-                        }
-                    }
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .background(p.consoleSurface),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-                    ) {
-                        items(allResultLines.size) { idx ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                                Text(
-                                    text = "${(idx + 1).toString().padStart(padW, ' ')}. ",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = p.textMuted
-                                )
-                                Text(
-                                    text = allResultLines[idx],
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.5.sp,
-                                    color = p.textPrimary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if (activeEditorJob != null) {
+        val job = activeEditorJob!!
+        val outName = GeminiEngine.formatOutputFileName(job.fileName, vm.geminiNameMode, vm.subtitleTargetLang.code)
+        SubtitleEditorDialog(
+            vm = vm,
+            fileName = job.fileName,
+            initialContent = job.originalContent,
+            translatedFileName = outName,
+            translatedContent = job.resultContent,
+            startOnTranslated = activeEditorStartTranslated,
+            primaryActionLabel = stringResource(R.string.sub_editor_btn_apply_job),
+            onPrimaryAction = { _, editedTxt, isTranslatedStage ->
+                vm.updateGeminiJobEditedContent(job.id, editedTxt, isTranslatedStage)
+                activeEditorJob = null
+            },
+            onSaveRequest = { fName, utf8Txt ->
+                requestSaveTranslated(fName, utf8Txt)
+            },
+            onDismiss = { activeEditorJob = null }
+        )
+    }
+
+    if (showAutoPairSaveDialog && pendingSaveContent != null) {
+        AutoPairVideoPickerDialog(
+            vm = vm,
+            subtitleFileName = pendingSaveFileName,
+            subtitleToSaveContent = pendingSaveContent,
+            hintQuery = pendingSaveFileName,
+            onManualSaveFallback = { saveResultLauncher.launch(pendingSaveFileName) },
+            onDismiss = { showAutoPairSaveDialog = false }
+        )
+    }
+
+    if (showAutoPairPickerDialog) {
+        AutoPairVideoPickerDialog(
+            vm = vm,
+            subtitleFileName = vm.geminiJobs.firstOrNull()?.fileName ?: "subtitle.srt",
+            subtitleToSaveContent = null,
+            hintQuery = vm.geminiJobs.firstOrNull()?.fileName.orEmpty(),
+            onDismiss = { showAutoPairPickerDialog = false }
+        )
     }
 }
 

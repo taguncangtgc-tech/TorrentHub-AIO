@@ -10,8 +10,8 @@
     <string name="nav_pikpak">PikPak</string>
 
     <string name="header_torrent">🧲 TorrentHub · 16 Situs</string>
-    <string name="header_subtitle">💬 Pencarian Subtitle (Xunlei)</string>
-    <string name="header_gemini">✨ Penerjemah Subtitle Gemini</string>
+    <string name="header_subtitle">💬 Pencarian Subtitle Multi-Sumber</string>
+    <string name="header_gemini">✨ Penerjemah Subtitle AI &amp; Multi-API</string>
     <string name="header_pikpak">☁️ PikPak Cloud &amp; Manajer File</string>
 
     <!-- Common -->
@@ -339,4 +339,74 @@
     <string name="toast_script_deleted">🗑️ Userscript dihapus.</string>
     <string name="toast_checking_script">⏳ Memeriksa Userscript…</string>
     <string name="toast_text_selected_hint">📋 Teks terdeteksi: ketuk tombol di bawah untuk cari di TorrentHub!</string>
+
+    <!-- Phase 3: Multi-Source Subtitle, Editor, Auto-Pairing & Custom Translation API -->
+    <string name="sub_provider_all">🌐 Semua Server</string>
+    <string name="sub_provider_xunlei">⚡ Xunlei</string>
+    <string name="sub_provider_subtitlecat">🐱 SubtitleCat</string>
+    <string name="sub_provider_opensubtitles">🎬 OpenSubtitles</string>
+    <string name="sub_provider_subdl">📥 SubDL</string>
+    <string name="sub_status_searching_source">⏳ Mencari \"%1$s\" di %2$s…</string>
+    <string name="sub_btn_open_local_editor">🛠️ Buka File Lokal</string>
+    <string name="sub_btn_preview_edit">✏️ Preview / Edit</string>
+
+    <string name="sub_editor_utf8_badge">UTF-8 ✓</string>
+    <string name="sub_editor_stage_orig">📄 Teks Asli</string>
+    <string name="sub_editor_stage_translated">✨ Hasil Terjemahan</string>
+    <string name="sub_editor_toggle_tools">🛠️ Koreksi Encoding UTF-8 &amp; Geser Waktu (Sync)</string>
+    <string name="sub_editor_encoding_label">🔤 Koreksi Encoding ke UTF-8:</string>
+    <string name="sub_editor_btn_fix_mojibake">🔧 Perbaiki Mojibake</string>
+    <string name="sub_editor_delay_label">⏱️ Geser Waktu / Subtitle Delay (%1$s):</string>
+    <string name="sub_editor_delay_input_hint">Detik kustom (mis: -0.5 atau 1.25)</string>
+    <string name="sub_editor_btn_apply_shift">Geser</string>
+    <string name="sub_editor_view_lines">📋 Mode Baris (Ketuk Edit)</string>
+    <string name="sub_editor_view_raw">📝 Mode Teks Penuh</string>
+    <string name="sub_editor_edit_line_title">✏️ Edit Baris #%1$d</string>
+    <string name="sub_editor_btn_apply_job">✅ Terapkan Perubahan</string>
+    <string name="sub_editor_btn_save_utf8">💾 Simpan UTF-8</string>
+
+    <string name="settings_section_translator">🤖 Penyedia &amp; API Penerjemah Subtitle</string>
+    <string name="settings_translator_desc">Pilih mesin penerjemah subtitle: Google Translate gratis bawaan atau API pribadi (Gemini, DeepL, OpenAI)</string>
+    <string name="tr_provider_google_free">🌐 Google Translate (Gratis)</string>
+    <string name="tr_provider_google_free_desc">Bawaan tanpa API Key · Cepat &amp; langsung siap pakai</string>
+    <string name="tr_provider_gemini">✨ Google Gemini API</string>
+    <string name="tr_provider_gemini_desc">AI kontekstual memahami alur dialog &amp; glosarium</string>
+    <string name="tr_provider_deepl">📘 DeepL API</string>
+    <string name="tr_provider_deepl_desc">Terjemahan natural akurat (DeepL Free :fx / Pro)</string>
+    <string name="tr_provider_openai">🧠 OpenAI / Compatible API</string>
+    <string name="tr_provider_openai_desc">GPT-4o, OpenRouter, DeepSeek, atau endpoint kustom</string>
+    <string name="tr_google_free_ready_banner">✅ Google Translate Gratis aktif — langsung terjemahkan tanpa perlu API Key!</string>
+    <string name="tr_api_key_optional_label">API Key Pribadi (%1$s)</string>
+    <string name="tr_api_key_deepl_placeholder">Tempel DeepL Auth Key (mis: xxxx:fx)…</string>
+    <string name="tr_api_key_openai_placeholder">Tempel sk-… atau sk-or-v1-…</string>
+    <string name="tr_model_custom_label">Model (%1$s)</string>
+    <string name="tr_endpoint_label">Endpoint API (Opsional / Kustom)</string>
+    <string name="tr_deepl_quality_prefer">Prefer Quality (Next-Gen LLM)</string>
+    <string name="tr_deepl_quality_latency">Latency Optimized (Cepat)</string>
+
+    <string name="settings_section_autopair">🎬 Auto-Pairing Subtitle &amp; Nama Video</string>
+    <string name="settings_autopair_enable">Samakan Nama Subtitle dengan Video Otomatis</string>
+    <string name="settings_autopair_enable_desc">Saat selesai diunduh atau diterjemahkan, simpan file .srt sesuai nama video di folder tujuan (SAF)</string>
+    <string name="settings_autopair_folder_label">Folder Video Tujuan (SAF):</string>
+    <string name="settings_autopair_folder_unset">Belum dipilih (pilih folder tempat file video berada)</string>
+    <string name="settings_autopair_video_label">File Video Target:</string>
+    <string name="settings_autopair_video_auto">Cocokkan otomatis berdasarkan kode/judul atau pilih saat simpan</string>
+    <string name="settings_autopair_btn_pick_folder">Pilih Folder</string>
+    <string name="settings_autopair_btn_pick_video">Pilih Video</string>
+    <string name="settings_autopair_btn_clear_video">Reset ke Auto-Match</string>
+    <string name="autopair_chip_active">🎬 Auto-Pair: %1$s</string>
+    <string name="autopair_chip_off">🎬 Auto-Pair: Nonaktif</string>
+    <string name="autopair_dialog_title">🎬 Auto-Pairing Subtitle ke Video</string>
+    <string name="autopair_dialog_desc">Pilih file video di folder tujuan untuk menyamakan nama file .%1$s secara otomatis:</string>
+    <string name="autopair_dialog_folder_current">📁 Folder: %1$s</string>
+    <string name="autopair_dialog_no_videos">Tidak ditemukan file video di folder ini. Pilih folder video tujuan terlebih dahulu.</string>
+    <string name="autopair_dialog_recommended">⭐ Cocok Otomatis</string>
+    <string name="autopair_btn_save_manual">Simpan Manual…</string>
+
+    <string name="toast_editor_applied">✅ Perubahan teks, encoding UTF-8 &amp; sinkronisasi waktu diterapkan!</string>
+    <string name="toast_encoding_applied">🔤 Encoding diatur ke %1$s (output UTF-8)</string>
+    <string name="toast_autopair_folder_set">📁 Folder Auto-Pairing diatur: %1$s (%2$d video terdeteksi)</string>
+    <string name="toast_autopair_video_set">🎬 Video target dipilih: %1$s</string>
+    <string name="toast_autopair_saved">✅ Subtitle disimpan sesuai nama video: %1$s</string>
+    <string name="toast_enter_provider_api_key">Masukkan API Key %1$s terlebih dahulu (atau gunakan Google Translate Gratis).</string>
 </resources>

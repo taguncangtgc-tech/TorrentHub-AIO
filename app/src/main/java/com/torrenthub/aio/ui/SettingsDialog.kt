@@ -1,9 +1,12 @@
 package com.torrenthub.aio.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -14,15 +17,19 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -30,6 +37,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.torrenthub.aio.R
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.AppThemeMode
+import com.torrenthub.aio.data.GeminiEngine
+import com.torrenthub.aio.model.TranslationProvider
 
 @Composable
 fun languageDisplayLabel(lang: AppLanguage): String = when (lang) {
@@ -47,6 +56,15 @@ fun SettingsDialog(
     onDismiss: () -> Unit
 ) {
     val p = AppTheme.palette
+    var showAutoPairVideoModal by remember { mutableStateOf(false) }
+
+    val safFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            vm.updateAutoPairFolder(uri)
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -58,7 +76,7 @@ fun SettingsDialog(
             border = BorderStroke(1.dp, p.borderColor),
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.9f)
+                .fillMaxHeight(0.92f)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Header
@@ -126,7 +144,6 @@ fun SettingsDialog(
                                 color = p.accentBlue
                             )
 
-                            // 1A: App UI Language
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
                                     text = stringResource(R.string.settings_app_language),
@@ -156,7 +173,6 @@ fun SettingsDialog(
 
                             HorizontalDivider(color = p.borderColor)
 
-                            // 1B: Subtitle Translation Target Language
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
                                     text = stringResource(R.string.settings_sub_target_lang),
@@ -186,7 +202,383 @@ fun SettingsDialog(
                         }
                     }
 
-                    // Section 2: Appearance & Theme (Light, Dark, AMOLED Black)
+                    // Section 2: Custom Translation Provider & API Keys
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_translator),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_translator_desc),
+                                fontSize = 11.5.sp,
+                                color = p.textMuted
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.tr_provider_google_free),
+                                    subtitle = stringResource(R.string.tr_provider_google_free_desc),
+                                    selected = vm.translationProvider == TranslationProvider.GOOGLE_FREE,
+                                    onClick = { vm.updateTranslationProvider(TranslationProvider.GOOGLE_FREE) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.tr_provider_gemini),
+                                    subtitle = stringResource(R.string.tr_provider_gemini_desc),
+                                    selected = vm.translationProvider == TranslationProvider.GEMINI,
+                                    onClick = { vm.updateTranslationProvider(TranslationProvider.GEMINI) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.tr_provider_deepl),
+                                    subtitle = stringResource(R.string.tr_provider_deepl_desc),
+                                    selected = vm.translationProvider == TranslationProvider.DEEPL,
+                                    onClick = { vm.updateTranslationProvider(TranslationProvider.DEEPL) }
+                                )
+                                ProviderOptionCard(
+                                    title = stringResource(R.string.tr_provider_openai),
+                                    subtitle = stringResource(R.string.tr_provider_openai_desc),
+                                    selected = vm.translationProvider == TranslationProvider.OPENAI,
+                                    onClick = { vm.updateTranslationProvider(TranslationProvider.OPENAI) }
+                                )
+                            }
+
+                            HorizontalDivider(color = p.borderColor)
+
+                            // Contextual API Key, Model & Endpoint Configuration
+                            when (vm.translationProvider) {
+                                TranslationProvider.GOOGLE_FREE -> {
+                                    Text(
+                                        text = stringResource(R.string.tr_google_free_ready_banner),
+                                        fontSize = 12.sp,
+                                        color = p.accentGreen,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    OutlinedTextField(
+                                        value = vm.googleTranslateEndpoint,
+                                        onValueChange = {
+                                            vm.googleTranslateEndpoint = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                                        placeholder = { Text(GeminiEngine.DEFAULT_GOOGLE_GTX_ENDPOINT, fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                }
+
+                                TranslationProvider.GEMINI -> {
+                                    OutlinedTextField(
+                                        value = vm.geminiKeysRaw,
+                                        onValueChange = {
+                                            vm.geminiKeysRaw = it
+                                            vm.saveGeminiSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 2,
+                                        maxLines = 3,
+                                        label = { Text(stringResource(R.string.tr_api_key_optional_label, "Gemini")) },
+                                        placeholder = { Text(stringResource(R.string.gemini_keys_placeholder), fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                    OutlinedTextField(
+                                        value = vm.geminiModel,
+                                        onValueChange = {
+                                            vm.geminiModel = it
+                                            vm.saveGeminiSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_model_custom_label, "Gemini")) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        GeminiEngine.DEFAULT_MODELS.take(5).forEach { m ->
+                                            FilterChip(
+                                                selected = vm.geminiModel == m,
+                                                onClick = {
+                                                    vm.geminiModel = m
+                                                    vm.saveGeminiSettings()
+                                                },
+                                                label = { Text(m, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = vm.geminiEndpoint,
+                                        onValueChange = {
+                                            vm.geminiEndpoint = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                                        placeholder = { Text(GeminiEngine.DEFAULT_GEMINI_ENDPOINT, fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                }
+
+                                TranslationProvider.DEEPL -> {
+                                    OutlinedTextField(
+                                        value = vm.deeplApiKey,
+                                        onValueChange = {
+                                            vm.deeplApiKey = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_api_key_optional_label, "DeepL")) },
+                                        placeholder = { Text(stringResource(R.string.tr_api_key_deepl_placeholder), fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = vm.deeplModel == "prefer_quality_optimized",
+                                            onClick = {
+                                                vm.deeplModel = "prefer_quality_optimized"
+                                                vm.saveTranslationProviderSettings()
+                                            },
+                                            label = { Text(stringResource(R.string.tr_deepl_quality_prefer), fontSize = 11.5.sp) }
+                                        )
+                                        FilterChip(
+                                            selected = vm.deeplModel == "latency_optimized",
+                                            onClick = {
+                                                vm.deeplModel = "latency_optimized"
+                                                vm.saveTranslationProviderSettings()
+                                            },
+                                            label = { Text(stringResource(R.string.tr_deepl_quality_latency), fontSize = 11.5.sp) }
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = vm.deeplEndpoint,
+                                        onValueChange = {
+                                            vm.deeplEndpoint = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                                        placeholder = { Text(GeminiEngine.DEFAULT_DEEPL_FREE_ENDPOINT, fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                }
+
+                                TranslationProvider.OPENAI -> {
+                                    OutlinedTextField(
+                                        value = vm.openaiApiKey,
+                                        onValueChange = {
+                                            vm.openaiApiKey = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_api_key_optional_label, "OpenAI / Compatible")) },
+                                        placeholder = { Text(stringResource(R.string.tr_api_key_openai_placeholder), fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                    OutlinedTextField(
+                                        value = vm.openaiModel,
+                                        onValueChange = {
+                                            vm.openaiModel = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_model_custom_label, "OpenAI")) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        GeminiEngine.OPENAI_PRESET_MODELS.forEach { m ->
+                                            FilterChip(
+                                                selected = vm.openaiModel == m,
+                                                onClick = {
+                                                    vm.openaiModel = m
+                                                    vm.saveTranslationProviderSettings()
+                                                },
+                                                label = { Text(m, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = vm.openaiEndpoint,
+                                        onValueChange = {
+                                            vm.openaiEndpoint = it
+                                            vm.saveTranslationProviderSettings()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.tr_endpoint_label)) },
+                                        placeholder = { Text(GeminiEngine.DEFAULT_OPENAI_ENDPOINT, fontSize = 11.5.sp) },
+                                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        GeminiEngine.OPENAI_PRESET_ENDPOINTS.forEach { (lbl, ep) ->
+                                            FilterChip(
+                                                selected = vm.openaiEndpoint.trimEnd('/') == ep,
+                                                onClick = {
+                                                    vm.openaiEndpoint = ep
+                                                    vm.saveTranslationProviderSettings()
+                                                },
+                                                label = { Text(lbl, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                OutlinedButton(onClick = { vm.testGeminiKeys() }) {
+                                    Text(stringResource(R.string.gemini_btn_test_conn), fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 3: Auto-Pairing Subtitle & Video (SAF)
+                    Surface(
+                        color = p.cardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = p.cardBorder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_section_autopair),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = p.accentBlue
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { vm.updateAutoPairEnabled(!vm.autoPairSubtitleVideo) }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_autopair_enable),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = p.textPrimary
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_autopair_enable_desc),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = vm.autoPairSubtitleVideo,
+                                    onCheckedChange = { vm.updateAutoPairEnabled(it) }
+                                )
+                            }
+
+                            Surface(
+                                color = p.subCardSurface,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, p.borderColor),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_autopair_folder_label),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                    Text(
+                                        text = if (vm.autoPairFolderName.isNotBlank()) "📁 ${vm.autoPairFolderName}"
+                                        else stringResource(R.string.settings_autopair_folder_unset),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (vm.autoPairFolderName.isNotBlank()) p.accentBlue else p.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_autopair_video_label),
+                                        fontSize = 11.5.sp,
+                                        color = p.textMuted
+                                    )
+                                    Text(
+                                        text = if (vm.autoPairVideoName.isNotBlank()) "🎬 ${vm.autoPairVideoName}"
+                                        else stringResource(R.string.settings_autopair_video_auto),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = p.textPrimary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { safFolderLauncher.launch(null) },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(stringResource(R.string.settings_autopair_btn_pick_folder), fontSize = 11.5.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { showAutoPairVideoModal = true },
+                                            enabled = vm.autoPairFolderUri.isNotBlank(),
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(stringResource(R.string.settings_autopair_btn_pick_video), fontSize = 11.5.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 4: Appearance & Theme (Light, Dark, AMOLED Black)
                     Surface(
                         color = p.cardSurface,
                         shape = RoundedCornerShape(12.dp),
@@ -247,7 +639,7 @@ fun SettingsDialog(
                         }
                     }
 
-                    // Section 3: Browser Swipe Navigation Control
+                    // Section 5: Browser Swipe Navigation Control
                     Surface(
                         color = p.cardSurface,
                         shape = RoundedCornerShape(12.dp),
@@ -325,6 +717,68 @@ fun SettingsDialog(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if (showAutoPairVideoModal) {
+        AutoPairVideoPickerDialog(
+            vm = vm,
+            subtitleFileName = "subtitle.srt",
+            subtitleToSaveContent = null,
+            hintQuery = vm.subtitleQuery,
+            onDismiss = { showAutoPairVideoModal = false }
+        )
+    }
+}
+
+@Composable
+private fun ProviderOptionCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val p = AppTheme.palette
+    val primary = MaterialTheme.colorScheme.primary
+    Surface(
+        color = if (selected) primary.copy(alpha = if (p.isLight) 0.12f else 0.18f) else p.subCardSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) primary else p.borderColor
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = if (selected) primary else p.textPrimary
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 11.sp,
+                    color = p.textMuted
+                )
+            }
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                RadioButton(selected = false, onClick = onClick)
             }
         }
     }

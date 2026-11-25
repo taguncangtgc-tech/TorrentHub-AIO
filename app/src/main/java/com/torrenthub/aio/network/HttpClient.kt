@@ -5,6 +5,7 @@ import coil.ImageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
+import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -136,6 +137,42 @@ object HttpClient {
                 throw HttpStatusException(resp.code, buildErrorDetail(resp.code, bodyStr), bodyStr)
             }
             bodyStr
+        }
+    }
+
+    suspend fun getBytes(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        timeoutSec: Long = 25L
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val client = if (timeoutSec == 25L) okHttp else okHttp.newBuilder()
+            .readTimeout(timeoutSec, TimeUnit.SECONDS)
+            .build()
+        val reqBuilder = Request.Builder().url(url).get()
+        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+        client.newCall(reqBuilder.build()).execute().use { resp ->
+            val bytes = resp.body?.bytes() ?: ByteArray(0)
+            if (!resp.isSuccessful) {
+                val preview = try { String(bytes, Charsets.UTF_8) } catch (_: Exception) { "" }
+                throw HttpStatusException(resp.code, buildErrorDetail(resp.code, preview), preview)
+            }
+            bytes
+        }
+    }
+
+    suspend fun postForm(
+        url: String,
+        fields: Map<String, String>,
+        headers: Map<String, String> = emptyMap(),
+        useLongTimeout: Boolean = false
+    ): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val client = if (useLongTimeout) longTimeoutHttp else okHttp
+        val fb = FormBody.Builder(Charsets.UTF_8)
+        fields.forEach { (k, v) -> fb.add(k, v) }
+        val reqBuilder = Request.Builder().url(url).post(fb.build())
+        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+        client.newCall(reqBuilder.build()).execute().use { resp ->
+            resp.code to resp.body?.string().orEmpty()
         }
     }
 

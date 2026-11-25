@@ -1,15 +1,14 @@
 package com.torrenthub.aio.ui
 
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -17,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.*
@@ -28,18 +26,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.torrenthub.aio.R
 import com.torrenthub.aio.data.AppLanguage
 import com.torrenthub.aio.data.SubtitleRepository
+import com.torrenthub.aio.model.SubtitleProvider
 import com.torrenthub.aio.util.Formatters
+import com.torrenthub.aio.util.SubtitleCharset
+import com.torrenthub.aio.util.SubtitleTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,15 +57,29 @@ private fun formatDurationCompact(durationMs: Long): String {
 }
 
 @Composable
+fun subtitleProviderDisplayLabel(provider: SubtitleProvider): String = when (provider) {
+    SubtitleProvider.ALL -> stringResource(R.string.sub_provider_all)
+    SubtitleProvider.XUNLEI -> stringResource(R.string.sub_provider_xunlei)
+    SubtitleProvider.SUBTITLECAT -> stringResource(R.string.sub_provider_subtitlecat)
+    SubtitleProvider.OPENSUBTITLES -> stringResource(R.string.sub_provider_opensubtitles)
+    SubtitleProvider.SUBDL -> stringResource(R.string.sub_provider_subdl)
+}
+
+@Composable
 fun SubtitleScreen(vm: AppViewModel) {
     val p = AppTheme.palette
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
-    var previewTitle by remember { mutableStateOf<String?>(null) }
-    var previewContent by remember { mutableStateOf("") }
+    var editorTitle by remember { mutableStateOf<String?>(null) }
+    var editorContent by remember { mutableStateOf("") }
+    var editorRawBytes by remember { mutableStateOf<ByteArray?>(null) }
+
+    var pendingSaveFileName by remember { mutableStateOf("subtitle.srt") }
     var pendingSaveText by remember { mutableStateOf<String?>(null) }
+    var showAutoPairSaveDialog by remember { mutableStateOf(false) }
+    var showAutoPairSetupDialog by remember { mutableStateOf(false) }
     var showTargetLangMenu by remember { mutableStateOf(false) }
 
     val saveLauncher = rememberLauncherForActivityResult(
@@ -77,14 +89,72 @@ fun SubtitleScreen(vm: AppViewModel) {
         if (uri != null && content != null) {
             scope.launch(Dispatchers.IO) {
                 try {
+                    val outBytes = if (content.startsWith("\uFEFF")) {
+                        SubtitleTools.normalizeToUtf8Bytes(content, includeBom = true)
+                    } else {
+                        SubtitleTools.normalizeToUtf8Bytes(content, includeBom = false)
+                    }
                     context.contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(content.toByteArray(Charsets.UTF_8))
+                        out.write(outBytes)
                     }
                     vm.emitToast(vm.str(R.string.toast_sub_saved))
                 } catch (e: Exception) {
                     vm.emitToast(vm.str(R.string.toast_save_failed, e.message ?: "Error"))
                 }
             }
+        }
+    }
+
+    val openLocalSubLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            try {
+                var fName = "subtitle.srt"
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && c.moveToFirst()) {
+                        fName = c.getString(idx) ?: fName
+                    }
+                }
+                val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: ByteArray(0)
+                if (bytes.isNotEmpty()) {
+                    val decoded = SubtitleTools.decodeWithCharset(bytes, SubtitleCharset.AUTO)
+                    withContext(Dispatchers.Main) {
+                        editorRawBytes = bytes
+                        editorContent = decoded
+                        editorTitle = fName
+                    }
+                }
+            } catch (e: Exception) {
+                vm.emitToast(vm.str(R.string.toast_read_file_failed, e.message ?: "Error"))
+            }
+        }
+    }
+
+    fun requestSaveSubtitle(fileName: String, utf8Content: String) {
+        pendingSaveFileName = fileName
+        pendingSaveText = utf8Content
+        if (vm.autoPairSubtitleVideo) {
+            if (vm.autoPairFolderUri.isNotBlank() && vm.autoPairVideoName.isNotBlank()) {
+                scope.launch {
+                    try {
+                        val savedName = vm.saveSubtitlePairedToSaf(
+                            videoFileName = vm.autoPairVideoName,
+                            subtitleNameOrExt = fileName,
+                            contentUtf8 = utf8Content
+                        )
+                        vm.emitToast(vm.str(R.string.toast_autopair_saved, savedName))
+                    } catch (_: Exception) {
+                        showAutoPairSaveDialog = true
+                    }
+                }
+            } else {
+                showAutoPairSaveDialog = true
+            }
+        } else {
+            saveLauncher.launch(fileName)
         }
     }
 
@@ -102,6 +172,7 @@ fun SubtitleScreen(vm: AppViewModel) {
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Search Input Row
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -134,22 +205,44 @@ fun SubtitleScreen(vm: AppViewModel) {
                         enabled = !vm.isSearchingSubtitles,
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         if (vm.isSearchingSubtitles) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                         } else {
-                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cd_search), tint = Color.White)
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cd_search), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
 
+                // 1-Tap Multi-Source Provider Selector Row
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Quick Target Translation Language selector right in Subtitle Tab
+                    SubtitleProvider.entries.forEach { provider ->
+                        val selected = vm.subtitleProvider == provider
+                        FilterChip(
+                            selected = selected,
+                            onClick = { vm.selectSubtitleProvider(provider) },
+                            label = {
+                                Text(
+                                    text = subtitleProviderDisplayLabel(provider),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // Target Language + Auto-Pairing + Local Editor + Sort Row
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box {
                         AssistChip(
                             onClick = { showTargetLangMenu = true },
@@ -188,6 +281,32 @@ fun SubtitleScreen(vm: AppViewModel) {
                         }
                     }
 
+                    // Auto-Pairing Quick Chip
+                    val pairLabel = if (vm.autoPairSubtitleVideo) {
+                        val targetDesc = vm.autoPairVideoName.ifBlank { vm.autoPairFolderName }.ifBlank { "ON" }
+                        stringResource(R.string.autopair_chip_active, targetDesc.take(18))
+                    } else {
+                        stringResource(R.string.autopair_chip_off)
+                    }
+                    FilterChip(
+                        selected = vm.autoPairSubtitleVideo,
+                        onClick = {
+                            if (!vm.autoPairSubtitleVideo) {
+                                vm.updateAutoPairEnabled(true)
+                                showAutoPairSetupDialog = true
+                            } else {
+                                showAutoPairSetupDialog = true
+                            }
+                        },
+                        label = { Text(pairLabel, fontSize = 11.5.sp) }
+                    )
+
+                    // Open Local File in Subtitle Editor
+                    AssistChip(
+                        onClick = { openLocalSubLauncher.launch(arrayOf("*/*")) },
+                        label = { Text(stringResource(R.string.sub_btn_open_local_editor), fontSize = 11.5.sp) }
+                    )
+
                     listOf(
                         "size-desc" to stringResource(R.string.sub_sort_size_desc),
                         "size-asc" to stringResource(R.string.sub_sort_size_asc),
@@ -223,6 +342,9 @@ fun SubtitleScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(sortedItems, key = { it.idKey }) { item ->
+                    val providerEnum = SubtitleProvider.fromId(item.sourceId)
+                    val providerBg = Color(providerEnum.colorHex)
+
                     Surface(
                         color = p.cardSurface,
                         shape = RoundedCornerShape(12.dp),
@@ -245,7 +367,16 @@ fun SubtitleScreen(vm: AppViewModel) {
                                     modifier = Modifier.weight(1f)
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(color = providerBg, shape = RoundedCornerShape(50)) {
+                                        Text(
+                                            text = item.sourceName,
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
                                     if (item.language.isNotBlank()) {
                                         Surface(color = p.chipBg, shape = RoundedCornerShape(50)) {
                                             Text(
@@ -290,12 +421,18 @@ fun SubtitleScreen(vm: AppViewModel) {
                                     SubBtn(stringResource(R.string.sub_btn_gemini), Color(0xFF7C3AED)) {
                                         vm.sendSubtitleItemToGemini(item)
                                     }
-                                    SubBtn(stringResource(R.string.common_preview), Color(0xFF2563EB)) {
+                                    SubBtn(stringResource(R.string.sub_btn_preview_edit), Color(0xFF2563EB)) {
                                         scope.launch {
                                             try {
-                                                val txt = SubtitleRepository.fetchSubtitleText(item.url)
-                                                previewContent = txt
-                                                previewTitle = item.name
+                                                val bytes = SubtitleRepository.fetchSubtitleBytes(item.url, vm.subtitleTargetLang.code)
+                                                val txt = if (bytes.isNotEmpty()) {
+                                                    SubtitleTools.decodeWithCharset(bytes, SubtitleCharset.AUTO)
+                                                } else {
+                                                    SubtitleRepository.fetchSubtitleText(item.url, vm.subtitleTargetLang.code)
+                                                }
+                                                editorRawBytes = bytes.takeIf { it.isNotEmpty() }
+                                                editorContent = txt
+                                                editorTitle = item.name
                                             } catch (e: Exception) {
                                                 vm.emitToast(vm.str(R.string.toast_preview_failed, e.message ?: "Error"))
                                             }
@@ -304,10 +441,9 @@ fun SubtitleScreen(vm: AppViewModel) {
                                     SubBtn(stringResource(R.string.sub_btn_save), Color(0xFF059669)) {
                                         scope.launch {
                                             try {
-                                                val txt = SubtitleRepository.fetchSubtitleText(item.url)
-                                                pendingSaveText = txt
+                                                val txt = SubtitleRepository.fetchSubtitleText(item.url, vm.subtitleTargetLang.code)
                                                 withContext(Dispatchers.Main) {
-                                                    saveLauncher.launch(item.name)
+                                                    requestSaveSubtitle(item.name, txt)
                                                 }
                                             } catch (e: Exception) {
                                                 vm.emitToast(vm.str(R.string.toast_download_failed, e.message ?: "Error"))
@@ -323,114 +459,45 @@ fun SubtitleScreen(vm: AppViewModel) {
         }
     }
 
-    if (previewTitle != null) {
-        val allLines = remember(previewContent) { previewContent.lines() }
-        val padWidth = remember(allLines.size) { allLines.size.toString().length.coerceAtLeast(3) }
+    if (editorTitle != null) {
+        SubtitleEditorDialog(
+            vm = vm,
+            fileName = editorTitle.orEmpty(),
+            initialContent = editorContent,
+            rawBytes = editorRawBytes,
+            primaryActionLabel = stringResource(R.string.sub_btn_send_gemini),
+            onPrimaryAction = { fName, utf8Txt, _ ->
+                editorTitle = null
+                vm.addGeminiJob(fName, utf8Txt)
+                vm.currentTab = 2
+                vm.emitToast(vm.str(R.string.toast_sent_to_gemini, fName))
+            },
+            onSaveRequest = { fName, utf8Txt ->
+                requestSaveSubtitle(fName, utf8Txt)
+            },
+            onDismiss = { editorTitle = null }
+        )
+    }
 
-        Dialog(
-            onDismissRequest = { previewTitle = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                color = p.barSurface,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, p.borderColor),
-                modifier = Modifier
-                    .fillMaxWidth(0.96f)
-                    .fillMaxHeight(0.88f)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(p.cardSurface)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                previewTitle.orEmpty(),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = p.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                stringResource(
-                                    R.string.sub_preview_meta,
-                                    allLines.size,
-                                    Formatters.formatBytes(previewContent.toByteArray(Charsets.UTF_8).size.toLong())
-                                ),
-                                fontSize = 11.sp,
-                                color = p.accentBlue
-                            )
-                        }
-                        IconButton(onClick = { previewTitle = null }) {
-                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = p.textPrimary)
-                        }
-                    }
+    if (showAutoPairSaveDialog && pendingSaveText != null) {
+        AutoPairVideoPickerDialog(
+            vm = vm,
+            subtitleFileName = pendingSaveFileName,
+            subtitleToSaveContent = pendingSaveText,
+            hintQuery = vm.subtitleQuery.ifBlank { pendingSaveFileName },
+            onManualSaveFallback = { saveLauncher.launch(pendingSaveFileName) },
+            onDismiss = { showAutoPairSaveDialog = false }
+        )
+    }
 
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .background(p.consoleSurface),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-                    ) {
-                        itemsIndexed(allLines) { idx, line ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                                Text(
-                                    text = "${(idx + 1).toString().padStart(padWidth, ' ')}. ",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = p.textMuted
-                                )
-                                Text(
-                                    text = line,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.5.sp,
-                                    color = p.textPrimary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(p.cardSurface)
-                            .padding(10.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Button(
-                            onClick = {
-                                val name = previewTitle ?: "subtitle.srt"
-                                val txt = previewContent
-                                previewTitle = null
-                                vm.addGeminiJob(name, txt)
-                                vm.currentTab = 2
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
-                        ) {
-                            Text(stringResource(R.string.sub_btn_send_gemini), color = Color.White)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val name = previewTitle ?: "subtitle.srt"
-                                pendingSaveText = previewContent
-                                saveLauncher.launch(name)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
-                        ) {
-                            Text(stringResource(R.string.sub_btn_save), color = Color.White)
-                        }
-                    }
-                }
-            }
-        }
+    if (showAutoPairSetupDialog) {
+        AutoPairVideoPickerDialog(
+            vm = vm,
+            subtitleFileName = "subtitle.srt",
+            subtitleToSaveContent = null,
+            hintQuery = vm.subtitleQuery,
+            onDismiss = { showAutoPairSetupDialog = false }
+        )
     }
 }
 

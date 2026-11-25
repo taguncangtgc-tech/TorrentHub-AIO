@@ -1,6 +1,7 @@
 package com.torrenthub.aio.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,15 +29,19 @@ import com.torrenthub.aio.model.PikPakTaskInfo
 import com.torrenthub.aio.model.PillState
 import com.torrenthub.aio.model.QuickStreamStage
 import com.torrenthub.aio.model.QuickStreamState
+import com.torrenthub.aio.model.SafVideoFile
 import com.torrenthub.aio.model.SourceStatus
 import com.torrenthub.aio.model.SubtitleItem
+import com.torrenthub.aio.model.SubtitleProvider
 import com.torrenthub.aio.model.TorrentItem
+import com.torrenthub.aio.model.TranslationProvider
 import com.torrenthub.aio.model.UserscriptItem
 import com.torrenthub.aio.model.UserscriptMenuCmd
 import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.util.Formatters
 import com.torrenthub.aio.util.LocaleHelper
 import com.torrenthub.aio.util.NotificationHelper
+import com.torrenthub.aio.util.SafSubtitleHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -179,17 +184,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var torrentSearchJob: Job? = null
 
     /* =====================================================================
-     * TAB 1: SUBTITLE SEARCH (XUNLEI)
+     * TAB 1: SUBTITLE SEARCH (MULTI-SOURCE + SAF AUTO-PAIRING)
      * ===================================================================== */
     var subtitleQuery by mutableStateOf("")
+    var subtitleProvider by mutableStateOf(settings.subtitleProvider)
+        private set
     var subtitleSortMode by mutableStateOf("size-desc")
     var isSearchingSubtitles by mutableStateOf(false)
     var subtitleStatusMsg by mutableStateOf<String?>(null)
     val subtitleResults = mutableStateListOf<SubtitleItem>()
+    private var subtitleSearchJob: Job? = null
+
+    var autoPairSubtitleVideo by mutableStateOf(settings.autoPairSubtitleVideo)
+        private set
+    var autoPairFolderUri by mutableStateOf(settings.autoPairFolderUri)
+        private set
+    var autoPairFolderName by mutableStateOf(settings.autoPairFolderName)
+        private set
+    var autoPairVideoName by mutableStateOf(settings.autoPairVideoName)
+        private set
 
     /* =====================================================================
-     * TAB 2: GEMINI SUBTITLE TRANSLATOR
+     * TAB 2: SUBTITLE TRANSLATOR (GOOGLE FREE, GEMINI, DEEPL, OPENAI)
      * ===================================================================== */
+    var translationProvider by mutableStateOf(settings.translationProvider)
+        private set
+    var googleTranslateEndpoint by mutableStateOf(settings.googleTranslateEndpoint)
+    var geminiEndpoint by mutableStateOf(settings.geminiEndpoint)
+    var deeplApiKey by mutableStateOf(settings.deeplApiKey)
+    var deeplModel by mutableStateOf(settings.deeplModel)
+    var deeplEndpoint by mutableStateOf(settings.deeplEndpoint)
+    var openaiApiKey by mutableStateOf(settings.openaiApiKey)
+    var openaiModel by mutableStateOf(settings.openaiModel)
+    var openaiEndpoint by mutableStateOf(settings.openaiEndpoint)
+    val openaiAvailableModels = mutableStateListOf<String>().apply {
+        addAll(GeminiEngine.OPENAI_PRESET_MODELS)
+    }
+
     var geminiKeysRaw by mutableStateOf(settings.geminiKeysRaw)
     var geminiModel by mutableStateOf(settings.geminiModel)
     val geminiAvailableModels = mutableStateListOf<String>()
@@ -450,8 +481,84 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /* =====================================================================
-     * SUBTITLE ACTIONS
+     * SUBTITLE ACTIONS (MULTI-SOURCE & AUTO-PAIRING)
      * ===================================================================== */
+    fun subtitleProviderLabel(provider: SubtitleProvider): String = when (provider) {
+        SubtitleProvider.ALL -> str(R.string.sub_provider_all)
+        SubtitleProvider.XUNLEI -> str(R.string.sub_provider_xunlei)
+        SubtitleProvider.SUBTITLECAT -> str(R.string.sub_provider_subtitlecat)
+        SubtitleProvider.OPENSUBTITLES -> str(R.string.sub_provider_opensubtitles)
+        SubtitleProvider.SUBDL -> str(R.string.sub_provider_subdl)
+    }
+
+    fun selectSubtitleProvider(provider: SubtitleProvider) {
+        val changed = subtitleProvider != provider
+        subtitleProvider = provider
+        settings.setSubtitleProvider(provider)
+        if (changed && subtitleQuery.trim().isNotEmpty()) {
+            runSubtitleSearch()
+        }
+    }
+
+    fun updateAutoPairEnabled(enabled: Boolean) {
+        autoPairSubtitleVideo = enabled
+        settings.setAutoPairSubtitleVideo(enabled)
+    }
+
+    fun updateAutoPairFolder(uri: Uri) {
+        val ctx = getApplication<Application>()
+        SafSubtitleHelper.persistTreePermission(ctx, uri)
+        val folderName = SafSubtitleHelper.getTreeDisplayName(ctx, uri)
+        val uriStr = uri.toString()
+        autoPairFolderUri = uriStr
+        autoPairFolderName = folderName
+        val videos = SafSubtitleHelper.listVideosInTree(ctx, uriStr)
+        if (videos.size == 1) {
+            autoPairVideoName = videos.first().name
+        } else if (autoPairVideoName.isNotBlank() && videos.none { it.name == autoPairVideoName }) {
+            autoPairVideoName = ""
+        }
+        autoPairSubtitleVideo = true
+        settings.setAutoPairSubtitleVideo(true)
+        settings.saveAutoPairTarget(autoPairFolderUri, autoPairFolderName, autoPairVideoName)
+        emitToast(str(R.string.toast_autopair_folder_set, folderName, videos.size))
+    }
+
+    fun updateAutoPairVideoName(videoName: String) {
+        autoPairVideoName = videoName
+        settings.saveAutoPairTarget(autoPairFolderUri, autoPairFolderName, videoName)
+        if (videoName.isNotBlank()) {
+            emitToast(str(R.string.toast_autopair_video_set, videoName))
+        }
+    }
+
+    fun listVideosInAutoPairFolder(): List<SafVideoFile> {
+        if (autoPairFolderUri.isBlank()) return emptyList()
+        return SafSubtitleHelper.listVideosInTree(getApplication(), autoPairFolderUri)
+    }
+
+    suspend fun saveSubtitlePairedToSaf(
+        videoFileName: String,
+        subtitleNameOrExt: String,
+        contentUtf8: String,
+        pinVideoSelection: Boolean = false
+    ): String = withContext(Dispatchers.IO) {
+        val pairedName = SafSubtitleHelper.buildPairedSubtitleFileName(videoFileName, subtitleNameOrExt)
+        val savedName = SafSubtitleHelper.saveSubtitleToTreeFolder(
+            context = getApplication(),
+            treeUriString = autoPairFolderUri,
+            targetFileName = pairedName,
+            contentUtf8 = contentUtf8
+        )
+        if (pinVideoSelection) {
+            withContext(Dispatchers.Main) {
+                autoPairVideoName = videoFileName
+                settings.saveAutoPairTarget(autoPairFolderUri, autoPairFolderName, videoFileName)
+            }
+        }
+        savedName
+    }
+
     fun runSubtitleSearch(customQuery: String? = null) {
         if (customQuery != null) subtitleQuery = customQuery
         val q = subtitleQuery.trim()
@@ -459,12 +566,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             emitToast(str(R.string.toast_enter_sub_query))
             return
         }
-        viewModelScope.launch {
+        val activeProvider = subtitleProvider
+        val activeTarget = subtitleTargetLang.code
+        subtitleSearchJob?.cancel()
+        subtitleSearchJob = viewModelScope.launch {
             isSearchingSubtitles = true
             subtitleResults.clear()
-            subtitleStatusMsg = str(R.string.sub_status_searching, q)
+            subtitleStatusMsg = str(R.string.sub_status_searching_source, q, subtitleProviderLabel(activeProvider))
             try {
-                val initial = SubtitleRepository.searchSubtitles(q)
+                val initial = SubtitleRepository.searchSubtitles(q, activeProvider, activeTarget)
                 if (initial.isEmpty()) {
                     subtitleStatusMsg = str(R.string.sub_status_not_found, q)
                 } else {
@@ -483,7 +593,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     subtitleStatusMsg = str(R.string.sub_status_found, sized.size, knownCount)
                 }
             } catch (e: Exception) {
-                subtitleStatusMsg = str(R.string.sub_status_error, e.message ?: "Error")
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    subtitleStatusMsg = str(R.string.sub_status_error, e.message ?: "Error")
+                }
             } finally {
                 isSearchingSubtitles = false
             }
@@ -504,7 +616,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             emitToast(str(R.string.toast_fetching_sub, item.name))
             try {
-                val content = SubtitleRepository.fetchSubtitleText(item.url)
+                val content = SubtitleRepository.fetchSubtitleText(item.url, subtitleTargetLang.code)
                 if (content.isBlank()) throw Exception("Empty subtitle content")
                 addGeminiJob(item.name, content)
                 currentTab = 2
@@ -534,7 +646,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun translationProviderDisplayName(provider: TranslationProvider): String = when (provider) {
+        TranslationProvider.GOOGLE_FREE -> str(R.string.tr_provider_google_free)
+        TranslationProvider.GEMINI -> str(R.string.tr_provider_gemini)
+        TranslationProvider.DEEPL -> str(R.string.tr_provider_deepl)
+        TranslationProvider.OPENAI -> str(R.string.tr_provider_openai)
+    }
+
+    fun updateTranslationProvider(provider: TranslationProvider) {
+        translationProvider = provider
+        saveTranslationProviderSettings()
+    }
+
+    fun saveTranslationProviderSettings() {
+        settings.saveTranslationProviderConfig(
+            provider = translationProvider,
+            googleEndpoint = googleTranslateEndpoint,
+            geminiEndpoint = geminiEndpoint,
+            deeplKey = deeplApiKey,
+            deeplModel = deeplModel,
+            deeplEndpoint = deeplEndpoint,
+            openaiKey = openaiApiKey,
+            openaiModel = openaiModel,
+            openaiEndpoint = openaiEndpoint
+        )
+    }
+
     fun saveGeminiSettings() {
+        saveTranslationProviderSettings()
         settings.saveGeminiSettings(
             keysRaw = geminiKeysRaw,
             model = geminiModel,
@@ -644,35 +783,91 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    fun updateGeminiJobEditedContent(jobId: String, editedContent: String, editedTranslatedResult: Boolean) {
+        val idx = geminiJobs.indexOfFirst { it.id == jobId }
+        if (idx < 0) return
+        val job = geminiJobs[idx]
+        if (editedTranslatedResult) {
+            geminiJobs[idx] = job.copy(resultContent = editedContent)
+        } else {
+            val parsed = GeminiEngine.parseSubtitle(editedContent, job.ext)
+            parsedSubMap[jobId] = parsed
+            val nonEmpty = parsed.texts.count { it.isNotBlank() }
+            val outName = GeminiEngine.formatOutputFileName(job.fileName, geminiNameMode, subtitleTargetLang.code)
+            val savedTr = progressMap[jobId]
+            val rebuilt = if (savedTr != null && savedTr.size == parsed.texts.size && savedTr.any { it.isNotBlank() }) {
+                GeminiEngine.buildSubtitle(parsed, savedTr, currentBuildOpts())
+            } else {
+                job.resultContent
+            }
+            geminiJobs[idx] = job.copy(
+                originalContent = editedContent,
+                totalLines = nonEmpty,
+                statusText = if (job.pct >= 100) job.statusText else str(R.string.gemini_job_ready, nonEmpty, outName),
+                resultContent = rebuilt
+            )
+        }
+        emitToast(str(R.string.toast_editor_applied))
+    }
+
     fun testGeminiKeys() {
-        val keys = GeminiEngine.parseKeys(geminiKeysRaw)
-        if (keys.isEmpty()) {
-            emitToast(str(R.string.toast_enter_api_key))
+        saveGeminiSettings()
+        val provider = translationProvider
+        val keys: List<String> = when (provider) {
+            TranslationProvider.GOOGLE_FREE -> listOf("google-free")
+            TranslationProvider.GEMINI -> GeminiEngine.parseKeys(geminiKeysRaw)
+            TranslationProvider.DEEPL -> GeminiEngine.parseKeys(deeplApiKey)
+            TranslationProvider.OPENAI -> GeminiEngine.parseKeys(openaiApiKey)
+        }
+        if (provider != TranslationProvider.GOOGLE_FREE && keys.isEmpty()) {
+            emitToast(str(R.string.toast_enter_provider_api_key, translationProviderDisplayName(provider)))
             return
         }
-        saveGeminiSettings()
+        val activeModel = when (provider) {
+            TranslationProvider.OPENAI -> openaiModel
+            TranslationProvider.DEEPL -> deeplModel
+            else -> geminiModel
+        }
+        val activeEndpoint = when (provider) {
+            TranslationProvider.GOOGLE_FREE -> googleTranslateEndpoint
+            TranslationProvider.GEMINI -> geminiEndpoint
+            TranslationProvider.DEEPL -> deeplEndpoint
+            TranslationProvider.OPENAI -> openaiEndpoint
+        }
         viewModelScope.launch {
             geminiStatusText = str(R.string.gemini_status_testing_keys, keys.size)
-            val logs = GeminiEngine.pingKeys(keys, geminiModel)
+            val logs = GeminiEngine.pingProvider(provider, keys, activeModel, activeEndpoint, subtitleTargetLang.code)
             geminiPreviewLog = logs.joinToString("\n")
             geminiStatusText = str(R.string.gemini_status_test_done, keys.size)
+            emitToast(logs.firstOrNull() ?: str(R.string.gemini_status_test_done, keys.size))
         }
     }
 
     fun refreshGeminiModels() {
-        val keys = GeminiEngine.parseKeys(geminiKeysRaw)
+        val provider = translationProvider
+        val keys = when (provider) {
+            TranslationProvider.OPENAI -> GeminiEngine.parseKeys(openaiApiKey)
+            else -> GeminiEngine.parseKeys(geminiKeysRaw)
+        }
         if (keys.isEmpty()) {
-            emitToast(str(R.string.toast_enter_api_key))
+            emitToast(str(R.string.toast_enter_provider_api_key, translationProviderDisplayName(provider)))
             return
         }
         saveGeminiSettings()
         viewModelScope.launch {
             geminiStatusText = str(R.string.gemini_status_fetching_models)
-            val models = GeminiEngine.fetchAvailableModels(keys)
-            geminiAvailableModels.clear()
-            geminiAvailableModels.addAll(models)
-            settings.saveGeminiModelsList(models)
-            geminiStatusText = str(R.string.gemini_status_models_ready, models.size)
+            if (provider == TranslationProvider.OPENAI) {
+                val models = GeminiEngine.fetchAvailableModels(keys, TranslationProvider.OPENAI, openaiEndpoint)
+                openaiAvailableModels.clear()
+                openaiAvailableModels.addAll(models)
+                geminiStatusText = str(R.string.gemini_status_models_ready, models.size)
+            } else {
+                val models = GeminiEngine.fetchAvailableModels(keys, TranslationProvider.GEMINI, geminiEndpoint)
+                geminiAvailableModels.clear()
+                geminiAvailableModels.addAll(models)
+                settings.saveGeminiModelsList(models)
+                geminiStatusText = str(R.string.gemini_status_models_ready, models.size)
+            }
         }
     }
 
@@ -735,11 +930,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startGeminiTranslation(limitLines: Int = 0) {
-        val keys = GeminiEngine.parseKeys(geminiKeysRaw)
-        if (keys.isEmpty()) {
-            emitToast(str(R.string.toast_enter_api_key))
-            return
+        val provider = translationProvider
+        val geminiKeys = GeminiEngine.parseKeys(geminiKeysRaw)
+        val deeplKeys = GeminiEngine.parseKeys(deeplApiKey)
+        val openaiKeys = GeminiEngine.parseKeys(openaiApiKey)
+
+        when (provider) {
+            TranslationProvider.GOOGLE_FREE -> Unit
+            TranslationProvider.GEMINI -> if (geminiKeys.isEmpty()) {
+                emitToast(str(R.string.toast_enter_provider_api_key, translationProviderDisplayName(provider)))
+                return
+            }
+            TranslationProvider.DEEPL -> if (deeplKeys.isEmpty() && deeplEndpoint.isBlank()) {
+                emitToast(str(R.string.toast_enter_provider_api_key, translationProviderDisplayName(provider)))
+                return
+            }
+            TranslationProvider.OPENAI -> if (openaiKeys.isEmpty()) {
+                emitToast(str(R.string.toast_enter_provider_api_key, translationProviderDisplayName(provider)))
+                return
+            }
         }
+
         if (geminiJobs.isEmpty()) {
             emitToast(str(R.string.toast_add_sub_first))
             return
@@ -748,13 +959,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
         val appCtx = getApplication<Application>()
         val activeTargetCode = subtitleTargetLang.code
+        val activeEndpoint = when (provider) {
+            TranslationProvider.GOOGLE_FREE -> googleTranslateEndpoint
+            TranslationProvider.GEMINI -> geminiEndpoint
+            TranslationProvider.DEEPL -> deeplEndpoint
+            TranslationProvider.OPENAI -> openaiEndpoint
+        }
 
         viewModelScope.launch {
             isGeminiRunning = true
             geminiCancelRequested = false
             val cfg = GeminiEngine.TranslateConfig(
-                keys = keys,
+                provider = provider,
+                keys = geminiKeys,
                 model = geminiModel,
+                customEndpoint = activeEndpoint,
+                deeplKey = deeplApiKey,
+                deeplModel = deeplModel,
+                openaiKey = openaiApiKey,
+                openaiModel = openaiModel,
                 taskMode = geminiTaskMode,
                 targetLang = activeTargetCode,
                 notes = if (geminiTaskMode == "polish") geminiNotesPolish else geminiNotesTranslate,
@@ -822,6 +1045,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
                     if (limitLines == 0 && geminiAutoUploadPikPak && pikpakCreds.isLoggedIn) {
                         uploadGeminiJobToPikPakInternal(job.id, silentIfAuto = true)
+                    }
+
+                    if (limitLines == 0 && autoPairSubtitleVideo && autoPairFolderUri.isNotBlank()) {
+                        try {
+                            val pairedCandidate = if (autoPairVideoName.isNotBlank() && targetIndices.size == 1) {
+                                autoPairVideoName
+                            } else {
+                                val videos = withContext(Dispatchers.IO) {
+                                    SafSubtitleHelper.listVideosInTree(appCtx, autoPairFolderUri)
+                                }
+                                SafSubtitleHelper.findBestMatchingVideo(videos, job.fileName)?.name
+                                    ?: autoPairVideoName.takeIf { it.isNotBlank() }
+                            }
+                            if (!pairedCandidate.isNullOrBlank()) {
+                                val savedPaired = saveSubtitlePairedToSaf(
+                                    videoFileName = pairedCandidate,
+                                    subtitleNameOrExt = job.ext,
+                                    contentUtf8 = builtFinal,
+                                    pinVideoSelection = false
+                                )
+                                val curJob = geminiJobs[idx]
+                                geminiJobs[idx] = curJob.copy(
+                                    statusText = "${curJob.statusText} · 🎬 $savedPaired"
+                                )
+                                emitToast(str(R.string.toast_autopair_saved, savedPaired))
+                            }
+                        } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
                     geminiJobs[idx] = geminiJobs[idx].copy(

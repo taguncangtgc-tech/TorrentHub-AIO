@@ -10,8 +10,8 @@
     <string name="nav_pikpak">PikPak</string>
 
     <string name="header_torrent">🧲 TorrentHub · 16개 사이트 통합</string>
-    <string name="header_subtitle">💬 자막 검색 (Xunlei)</string>
-    <string name="header_gemini">✨ Gemini AI 자막 번역기</string>
+    <string name="header_subtitle">💬 멀티 소스 자막 검색</string>
+    <string name="header_gemini">✨ AI &amp; 멀티 API 자막 번역기</string>
     <string name="header_pikpak">☁️ PikPak 클라우드 &amp; 파일 관리자</string>
 
     <!-- Common -->
@@ -339,4 +339,74 @@
     <string name="toast_script_deleted">🗑️ Userscript가 삭제되었습니다.</string>
     <string name="toast_checking_script">⏳ Userscript 확인 중…</string>
     <string name="toast_text_selected_hint">📋 텍스트 감지됨: 아래 버튼을 눌러 TorrentHub에서 바로 검색하세요!</string>
+
+    <!-- Phase 3: Multi-Source Subtitle, Editor, Auto-Pairing & Custom Translation API -->
+    <string name="sub_provider_all">🌐 전체 서버</string>
+    <string name="sub_provider_xunlei">⚡ Xunlei</string>
+    <string name="sub_provider_subtitlecat">🐱 SubtitleCat</string>
+    <string name="sub_provider_opensubtitles">🎬 OpenSubtitles</string>
+    <string name="sub_provider_subdl">📥 SubDL</string>
+    <string name="sub_status_searching_source">⏳ %2$s에서 \"%1$s\" 자막 검색 중…</string>
+    <string name="sub_btn_open_local_editor">🛠️ 로컬 파일 열기</string>
+    <string name="sub_btn_preview_edit">✏️ 미리보기 / 편집</string>
+
+    <string name="sub_editor_utf8_badge">UTF-8 ✓</string>
+    <string name="sub_editor_stage_orig">📄 원본 텍스트</string>
+    <string name="sub_editor_stage_translated">✨ 번역 결과</string>
+    <string name="sub_editor_toggle_tools">🛠️ UTF-8 인코딩 보정 및 자막 싱크 조절</string>
+    <string name="sub_editor_encoding_label">🔤 UTF-8 인코딩 변환:</string>
+    <string name="sub_editor_btn_fix_mojibake">🔧 깨진 글자 복구</string>
+    <string name="sub_editor_delay_label">⏱️ 자막 싱크 / 시간 이동 (%1$s):</string>
+    <string name="sub_editor_delay_input_hint">초 단위 입력 (예: -0.5 또는 1.25)</string>
+    <string name="sub_editor_btn_apply_shift">이동</string>
+    <string name="sub_editor_view_lines">📋 줄 단위 보기 (탭하여 편집)</string>
+    <string name="sub_editor_view_raw">📝 전체 텍스트 편집</string>
+    <string name="sub_editor_edit_line_title">✏️ #%1$d번째 줄 편집</string>
+    <string name="sub_editor_btn_apply_job">✅ 변경사항 적용</string>
+    <string name="sub_editor_btn_save_utf8">💾 UTF-8 저장</string>
+
+    <string name="settings_section_translator">🤖 자막 번역 제공자 및 사용자 지정 API</string>
+    <string name="settings_translator_desc">기본 무료 Google 번역 또는 개인 API 키(Gemini, DeepL, OpenAI)와 엔드포인트를 설정하세요</string>
+    <string name="tr_provider_google_free">🌐 Google 번역 (무료 기본)</string>
+    <string name="tr_provider_google_free_desc">API 키 불필요 · 즉시 사용 가능한 빠른 번역</string>
+    <string name="tr_provider_gemini">✨ Google Gemini API</string>
+    <string name="tr_provider_gemini_desc">문맥과 말투, 용어집을 반영하는 AI 번역</string>
+    <string name="tr_provider_deepl">📘 DeepL API</string>
+    <string name="tr_provider_deepl_desc">자연스럽고 정확한 번역 (DeepL Free :fx / Pro)</string>
+    <string name="tr_provider_openai">🧠 OpenAI / 호환 API</string>
+    <string name="tr_provider_openai_desc">GPT-4o, OpenRouter, DeepSeek 및 커스텀 엔드포인트</string>
+    <string name="tr_google_free_ready_banner">✅ 무료 Google 번역 활성화됨 — API 키 없이 바로 번역할 수 있습니다!</string>
+    <string name="tr_api_key_optional_label">개인 API 키 (%1$s)</string>
+    <string name="tr_api_key_deepl_placeholder">DeepL 인증 키 붙여넣기 (예: xxxx:fx)…</string>
+    <string name="tr_api_key_openai_placeholder">sk-… 또는 sk-or-v1-… 붙여넣기</string>
+    <string name="tr_model_custom_label">모델 (%1$s)</string>
+    <string name="tr_endpoint_label">API 엔드포인트 (선택 / 커스텀)</string>
+    <string name="tr_deepl_quality_prefer">품질 우선 (차세대 LLM)</string>
+    <string name="tr_deepl_quality_latency">속도 우선 (저지연)</string>
+
+    <string name="settings_section_autopair">🎬 동영상 파일명 자막 자동 매칭</string>
+    <string name="settings_autopair_enable">동영상 이름과 동일하게 자막 자동 저장</string>
+    <string name="settings_autopair_enable_desc">자막 다운로드 또는 번역 완료 시 대상 폴더의 동영상 파일명에 맞춰 .srt를 자동 저장합니다 (SAF)</string>
+    <string name="settings_autopair_folder_label">대상 동영상 폴더 (SAF):</string>
+    <string name="settings_autopair_folder_unset">선택되지 않음 (동영상이 있는 폴더를 선택하세요)</string>
+    <string name="settings_autopair_video_label">선택된 대상 동영상:</string>
+    <string name="settings_autopair_video_auto">품번/제목으로 자동 매칭하거나 저장 시 선택</string>
+    <string name="settings_autopair_btn_pick_folder">폴더 선택</string>
+    <string name="settings_autopair_btn_pick_video">동영상 선택</string>
+    <string name="settings_autopair_btn_clear_video">자동 매칭으로 초기화</string>
+    <string name="autopair_chip_active">🎬 자동매칭: %1$s</string>
+    <string name="autopair_chip_off">🎬 자동매칭: 꺼짐</string>
+    <string name="autopair_dialog_title">🎬 자막을 매칭할 동영상 선택</string>
+    <string name="autopair_dialog_desc">폴더 내 동영상을 선택하면 동일한 이름의 .%1$s 파일로 자동 저장됩니다:</string>
+    <string name="autopair_dialog_folder_current">📁 폴더: %1$s</string>
+    <string name="autopair_dialog_no_videos">이 폴더에서 동영상 파일을 찾지 못했습니다. 동영상 폴더를 먼저 선택하세요.</string>
+    <string name="autopair_dialog_recommended">⭐ 자동 매칭 추천</string>
+    <string name="autopair_btn_save_manual">직접 다른 이름으로 저장…</string>
+
+    <string name="toast_editor_applied">✅ 텍스트 편집, UTF-8 인코딩 및 싱크 조절이 적용되었습니다!</string>
+    <string name="toast_encoding_applied">🔤 인코딩이 %1$s(으)로 설정됨 (UTF-8 출력)</string>
+    <string name="toast_autopair_folder_set">📁 자동 매칭 폴더 설정됨: %1$s (동영상 %2$d개 감지)</string>
+    <string name="toast_autopair_video_set">🎬 대상 동영상 선택됨: %1$s</string>
+    <string name="toast_autopair_saved">✅ 동영상 이름에 맞춰 저장됨: %1$s</string>
+    <string name="toast_enter_provider_api_key">먼저 %1$s API 키를 입력해 주세요 (또는 무료 Google 번역 선택).</string>
 </resources>

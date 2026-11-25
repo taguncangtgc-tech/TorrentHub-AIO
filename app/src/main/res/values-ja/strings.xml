@@ -10,8 +10,8 @@
     <string name="nav_pikpak">PikPak</string>
 
     <string name="header_torrent">🧲 TorrentHub · 16サイト検索</string>
-    <string name="header_subtitle">💬 字幕検索 (Xunlei)</string>
-    <string name="header_gemini">✨ Gemini AI 字幕翻訳</string>
+    <string name="header_subtitle">💬 マルチソース字幕検索</string>
+    <string name="header_gemini">✨ AI &amp; マルチAPI 字幕翻訳</string>
     <string name="header_pikpak">☁️ PikPak クラウド &amp; ファイル管理</string>
 
     <!-- Common -->
@@ -339,4 +339,74 @@
     <string name="toast_script_deleted">🗑️ Userscript を削除しました。</string>
     <string name="toast_checking_script">⏳ Userscript を確認中…</string>
     <string name="toast_text_selected_hint">📋 テキストを検出：下のボタンから TorrentHub で検索できます！</string>
+
+    <!-- Phase 3: Multi-Source Subtitle, Editor, Auto-Pairing & Custom Translation API -->
+    <string name="sub_provider_all">🌐 全サーバー</string>
+    <string name="sub_provider_xunlei">⚡ Xunlei</string>
+    <string name="sub_provider_subtitlecat">🐱 SubtitleCat</string>
+    <string name="sub_provider_opensubtitles">🎬 OpenSubtitles</string>
+    <string name="sub_provider_subdl">📥 SubDL</string>
+    <string name="sub_status_searching_source">⏳ %2$s で \"%1$s\" の字幕を検索中…</string>
+    <string name="sub_btn_open_local_editor">🛠️ ローカルファイルを開く</string>
+    <string name="sub_btn_preview_edit">✏️ プレビュー / 編集</string>
+
+    <string name="sub_editor_utf8_badge">UTF-8 ✓</string>
+    <string name="sub_editor_stage_orig">📄 原文テキスト</string>
+    <string name="sub_editor_stage_translated">✨ 翻訳結果</string>
+    <string name="sub_editor_toggle_tools">🛠️ UTF-8 文字コード補正 &amp; 字幕タイミング調整</string>
+    <string name="sub_editor_encoding_label">🔤 UTF-8 への文字コード変換:</string>
+    <string name="sub_editor_btn_fix_mojibake">🔧 文字化け修復</string>
+    <string name="sub_editor_delay_label">⏱️ 字幕ディレイ / 同期調整 (%1$s):</string>
+    <string name="sub_editor_delay_input_hint">秒数を入力 (例: -0.5 または 1.25)</string>
+    <string name="sub_editor_btn_apply_shift">適用</string>
+    <string name="sub_editor_view_lines">📋 行リスト表示 (タップで編集)</string>
+    <string name="sub_editor_view_raw">📝 全文テキスト編集</string>
+    <string name="sub_editor_edit_line_title">✏️ #%1$d 行目を編集</string>
+    <string name="sub_editor_btn_apply_job">✅ 変更を反映</string>
+    <string name="sub_editor_btn_save_utf8">💾 UTF-8で保存</string>
+
+    <string name="settings_section_translator">🤖 字幕翻訳プロバイダ &amp; カスタムAPI</string>
+    <string name="settings_translator_desc">無料の標準 Google 翻訳、または個人用 API キー (Gemini / DeepL / OpenAI) を選択できます</string>
+    <string name="tr_provider_google_free">🌐 Google 翻訳 (無料・標準)</string>
+    <string name="tr_provider_google_free_desc">APIキー不要・すぐに使える高速翻訳</string>
+    <string name="tr_provider_gemini">✨ Google Gemini API</string>
+    <string name="tr_provider_gemini_desc">文脈・口調・用語集を理解する高品質AI翻訳</string>
+    <string name="tr_provider_deepl">📘 DeepL API</string>
+    <string name="tr_provider_deepl_desc">自然で高精度な翻訳 (DeepL Free :fx / Pro)</string>
+    <string name="tr_provider_openai">🧠 OpenAI / 互換 API</string>
+    <string name="tr_provider_openai_desc">GPT-4o、OpenRouter、DeepSeek、カスタムエンドポイント対応</string>
+    <string name="tr_google_free_ready_banner">✅ 無料 Google 翻訳が有効です — APIキーなしでそのまま翻訳できます！</string>
+    <string name="tr_api_key_optional_label">個人用 API キー (%1$s)</string>
+    <string name="tr_api_key_deepl_placeholder">DeepL 認証キーを貼り付け (例: xxxx:fx)…</string>
+    <string name="tr_api_key_openai_placeholder">sk-… または sk-or-v1-… を貼り付け</string>
+    <string name="tr_model_custom_label">モデル (%1$s)</string>
+    <string name="tr_endpoint_label">API エンドポイント (任意 / カスタム)</string>
+    <string name="tr_deepl_quality_prefer">品質優先 (次世代 LLM)</string>
+    <string name="tr_deepl_quality_latency">速度優先 (低遅延)</string>
+
+    <string name="settings_section_autopair">🎬 動画ファイル名との自動ペアリング</string>
+    <string name="settings_autopair_enable">字幕ファイル名を動画名に自動一致させる</string>
+    <string name="settings_autopair_enable_desc">ダウンロードや翻訳完了時、保存先フォルダ内の動画と同じ名前で .srt を自動保存します (SAF)</string>
+    <string name="settings_autopair_folder_label">保存先の動画フォルダ (SAF):</string>
+    <string name="settings_autopair_folder_unset">未選択（動画があるフォルダを選択してください）</string>
+    <string name="settings_autopair_video_label">対象の動画ファイル:</string>
+    <string name="settings_autopair_video_auto">品番/タイトルで自動一致、または保存時に選択</string>
+    <string name="settings_autopair_btn_pick_folder">フォルダ選択</string>
+    <string name="settings_autopair_btn_pick_video">動画を選択</string>
+    <string name="settings_autopair_btn_clear_video">自動一致に戻す</string>
+    <string name="autopair_chip_active">🎬 自動ペア: %1$s</string>
+    <string name="autopair_chip_off">🎬 自動ペア: OFF</string>
+    <string name="autopair_dialog_title">🎬 字幕を合わせる動画を選択</string>
+    <string name="autopair_dialog_desc">フォルダ内の動画をタップすると、同じファイル名の .%1$s として自動保存します:</string>
+    <string name="autopair_dialog_folder_current">📁 フォルダ: %1$s</string>
+    <string name="autopair_dialog_no_videos">このフォルダに動画ファイルが見つかりません。動画フォルダを選択してください。</string>
+    <string name="autopair_dialog_recommended">⭐ 自動一致候補</string>
+    <string name="autopair_btn_save_manual">手動で保存…</string>
+
+    <string name="toast_editor_applied">✅ テキスト編集・UTF-8変換・タイミング調整を反映しました！</string>
+    <string name="toast_encoding_applied">🔤 文字コードを %1$s に設定しました (UTF-8出力)</string>
+    <string name="toast_autopair_folder_set">📁 自動ペアリング先を設定: %1$s (動画 %2$d 件)</string>
+    <string name="toast_autopair_video_set">🎬 対象動画を選択: %1$s</string>
+    <string name="toast_autopair_saved">✅ 動画名に合わせて保存しました: %1$s</string>
+    <string name="toast_enter_provider_api_key">先に %1$s の API キーを入力してください（または無料 Google 翻訳を選択）。</string>
 </resources>

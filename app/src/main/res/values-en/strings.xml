@@ -10,8 +10,8 @@
     <string name="nav_pikpak">PikPak</string>
 
     <string name="header_torrent">🧲 TorrentHub · 16 Sites</string>
-    <string name="header_subtitle">💬 Subtitle Search (Xunlei)</string>
-    <string name="header_gemini">✨ Gemini Subtitle Translator</string>
+    <string name="header_subtitle">💬 Multi-Source Subtitle Search</string>
+    <string name="header_gemini">✨ AI &amp; Multi-API Subtitle Translator</string>
     <string name="header_pikpak">☁️ PikPak Cloud &amp; File Manager</string>
 
     <!-- Common -->
@@ -339,4 +339,74 @@
     <string name="toast_script_deleted">🗑️ Userscript deleted.</string>
     <string name="toast_checking_script">⏳ Checking Userscript…</string>
     <string name="toast_text_selected_hint">📋 Text detected: tap a button below to search on TorrentHub!</string>
+
+    <!-- Phase 3: Multi-Source Subtitle, Editor, Auto-Pairing & Custom Translation API -->
+    <string name="sub_provider_all">🌐 All Servers</string>
+    <string name="sub_provider_xunlei">⚡ Xunlei</string>
+    <string name="sub_provider_subtitlecat">🐱 SubtitleCat</string>
+    <string name="sub_provider_opensubtitles">🎬 OpenSubtitles</string>
+    <string name="sub_provider_subdl">📥 SubDL</string>
+    <string name="sub_status_searching_source">⏳ Searching \"%1$s\" on %2$s…</string>
+    <string name="sub_btn_open_local_editor">🛠️ Open Local File</string>
+    <string name="sub_btn_preview_edit">✏️ Preview / Edit</string>
+
+    <string name="sub_editor_utf8_badge">UTF-8 ✓</string>
+    <string name="sub_editor_stage_orig">📄 Original Text</string>
+    <string name="sub_editor_stage_translated">✨ Translated Result</string>
+    <string name="sub_editor_toggle_tools">🛠️ UTF-8 Encoding Fix &amp; Subtitle Delay (Sync)</string>
+    <string name="sub_editor_encoding_label">🔤 Convert Encoding to UTF-8:</string>
+    <string name="sub_editor_btn_fix_mojibake">🔧 Fix Mojibake</string>
+    <string name="sub_editor_delay_label">⏱️ Subtitle Delay / Time Sync (%1$s):</string>
+    <string name="sub_editor_delay_input_hint">Custom seconds (e.g. -0.5 or 1.25)</string>
+    <string name="sub_editor_btn_apply_shift">Shift</string>
+    <string name="sub_editor_view_lines">📋 Line Mode (Tap to Edit)</string>
+    <string name="sub_editor_view_raw">📝 Full Text Mode</string>
+    <string name="sub_editor_edit_line_title">✏️ Edit Line #%1$d</string>
+    <string name="sub_editor_btn_apply_job">✅ Apply Changes</string>
+    <string name="sub_editor_btn_save_utf8">💾 Save UTF-8</string>
+
+    <string name="settings_section_translator">🤖 Subtitle Translation Provider &amp; API</string>
+    <string name="settings_translator_desc">Choose built-in free Google Translate or configure your own Gemini, DeepL, or OpenAI API key</string>
+    <string name="tr_provider_google_free">🌐 Google Translate (Free)</string>
+    <string name="tr_provider_google_free_desc">Built-in, no API key required · Fast &amp; ready to use</string>
+    <string name="tr_provider_gemini">✨ Google Gemini API</string>
+    <string name="tr_provider_gemini_desc">Context-aware AI dialogue translation &amp; glossary</string>
+    <string name="tr_provider_deepl">📘 DeepL API</string>
+    <string name="tr_provider_deepl_desc">High-accuracy translation (DeepL Free :fx / Pro)</string>
+    <string name="tr_provider_openai">🧠 OpenAI / Compatible API</string>
+    <string name="tr_provider_openai_desc">GPT-4o, OpenRouter, DeepSeek, or custom endpoint</string>
+    <string name="tr_google_free_ready_banner">✅ Free Google Translate active — ready to translate immediately with no API key!</string>
+    <string name="tr_api_key_optional_label">Personal API Key (%1$s)</string>
+    <string name="tr_api_key_deepl_placeholder">Paste DeepL Auth Key (e.g. xxxx:fx)…</string>
+    <string name="tr_api_key_openai_placeholder">Paste sk-… or sk-or-v1-…</string>
+    <string name="tr_model_custom_label">Model (%1$s)</string>
+    <string name="tr_endpoint_label">API Endpoint (Optional / Custom)</string>
+    <string name="tr_deepl_quality_prefer">Prefer Quality (Next-Gen LLM)</string>
+    <string name="tr_deepl_quality_latency">Latency Optimized (Fast)</string>
+
+    <string name="settings_section_autopair">🎬 Auto-Pair Subtitle with Video Filename</string>
+    <string name="settings_autopair_enable">Auto-Match Subtitle Name to Video</string>
+    <string name="settings_autopair_enable_desc">Automatically save downloaded or translated .srt files matching the selected video filename in your target folder (SAF)</string>
+    <string name="settings_autopair_folder_label">Target Video Folder (SAF):</string>
+    <string name="settings_autopair_folder_unset">Not selected yet (pick your video folder)</string>
+    <string name="settings_autopair_video_label">Selected Target Video:</string>
+    <string name="settings_autopair_video_auto">Smart auto-match by code/title or choose when saving</string>
+    <string name="settings_autopair_btn_pick_folder">Pick Folder</string>
+    <string name="settings_autopair_btn_pick_video">Pick Video</string>
+    <string name="settings_autopair_btn_clear_video">Reset to Auto-Match</string>
+    <string name="autopair_chip_active">🎬 Auto-Pair: %1$s</string>
+    <string name="autopair_chip_off">🎬 Auto-Pair: Off</string>
+    <string name="autopair_dialog_title">🎬 Auto-Pair Subtitle to Video</string>
+    <string name="autopair_dialog_desc">Select a video file in your target folder to match the .%1$s filename automatically:</string>
+    <string name="autopair_dialog_folder_current">📁 Folder: %1$s</string>
+    <string name="autopair_dialog_no_videos">No video files found in this folder. Please select a folder containing your videos.</string>
+    <string name="autopair_dialog_recommended">⭐ Best Auto-Match</string>
+    <string name="autopair_btn_save_manual">Save Manually…</string>
+
+    <string name="toast_editor_applied">✅ Text edits, UTF-8 encoding &amp; time sync applied!</string>
+    <string name="toast_encoding_applied">🔤 Encoding set to %1$s (UTF-8 output)</string>
+    <string name="toast_autopair_folder_set">📁 Auto-Pair folder set: %1$s (%2$d videos found)</string>
+    <string name="toast_autopair_video_set">🎬 Target video selected: %1$s</string>
+    <string name="toast_autopair_saved">✅ Auto-paired &amp; saved as: %1$s</string>
+    <string name="toast_enter_provider_api_key">Please enter your %1$s API key first (or switch to Free Google Translate).</string>
 </resources>

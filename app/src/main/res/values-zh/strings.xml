@@ -10,8 +10,8 @@
     <string name="nav_pikpak">PikPak</string>
 
     <string name="header_torrent">🧲 TorrentHub · 16 站点聚合</string>
-    <string name="header_subtitle">💬 字幕搜索 (迅雷字幕库)</string>
-    <string name="header_gemini">✨ Gemini AI 字幕翻译器</string>
+    <string name="header_subtitle">💬 多源聚合字幕搜索</string>
+    <string name="header_gemini">✨ AI 与多引擎字幕翻译器</string>
     <string name="header_pikpak">☁️ PikPak 云盘与文件管理</string>
 
     <!-- Common -->
@@ -339,4 +339,74 @@
     <string name="toast_script_deleted">🗑️ 脚本已删除。</string>
     <string name="toast_checking_script">⏳ 正在解析脚本…</string>
     <string name="toast_text_selected_hint">📋 已识别选中文本：点击下方按钮即可一键搜索！</string>
+
+    <!-- Phase 3: Multi-Source Subtitle, Editor, Auto-Pairing & Custom Translation API -->
+    <string name="sub_provider_all">🌐 全部字幕源</string>
+    <string name="sub_provider_xunlei">⚡ 迅雷字幕</string>
+    <string name="sub_provider_subtitlecat">🐱 SubtitleCat</string>
+    <string name="sub_provider_opensubtitles">🎬 OpenSubtitles</string>
+    <string name="sub_provider_subdl">📥 SubDL</string>
+    <string name="sub_status_searching_source">⏳ 正在从 %2$s 搜索“%1$s”…</string>
+    <string name="sub_btn_open_local_editor">🛠️ 打开本地字幕</string>
+    <string name="sub_btn_preview_edit">✏️ 预览 / 编辑</string>
+
+    <string name="sub_editor_utf8_badge">UTF-8 ✓</string>
+    <string name="sub_editor_stage_orig">📄 原文字幕</string>
+    <string name="sub_editor_stage_translated">✨ 翻译结果</string>
+    <string name="sub_editor_toggle_tools">🛠️ UTF-8 编码修复与时间轴同步调整</string>
+    <string name="sub_editor_encoding_label">🔤 字幕编码纠正为 UTF-8：</string>
+    <string name="sub_editor_btn_fix_mojibake">🔧 修复乱码</string>
+    <string name="sub_editor_delay_label">⏱️ 时间轴偏移 / 字幕同步 (%1$s)：</string>
+    <string name="sub_editor_delay_input_hint">输入秒数 (例如: -0.5 或 1.25)</string>
+    <string name="sub_editor_btn_apply_shift">偏移</string>
+    <string name="sub_editor_view_lines">📋 逐行模式 (点击编辑)</string>
+    <string name="sub_editor_view_raw">📝 全文编辑模式</string>
+    <string name="sub_editor_edit_line_title">✏️ 编辑第 #%1$d 行</string>
+    <string name="sub_editor_btn_apply_job">✅ 应用修改</string>
+    <string name="sub_editor_btn_save_utf8">💾 保存 UTF-8</string>
+
+    <string name="settings_section_translator">🤖 字幕翻译引擎与自定义 API</string>
+    <string name="settings_translator_desc">可选择内置免费 Google 翻译，或配置个人 Gemini、DeepL、OpenAI 密钥与端点</string>
+    <string name="tr_provider_google_free">🌐 Google 翻译 (内置免费)</string>
+    <string name="tr_provider_google_free_desc">免 API 密钥 · 开箱即用极速翻译</string>
+    <string name="tr_provider_gemini">✨ Google Gemini API</string>
+    <string name="tr_provider_gemini_desc">结合剧情语境与术语表的 AI 智能翻译</string>
+    <string name="tr_provider_deepl">📘 DeepL API</string>
+    <string name="tr_provider_deepl_desc">高品质地道翻译 (支持 Free :fx / Pro)</string>
+    <string name="tr_provider_openai">🧠 OpenAI / 兼容接口 API</string>
+    <string name="tr_provider_openai_desc">支持 GPT-4o、OpenRouter、DeepSeek 或自定义端点</string>
+    <string name="tr_google_free_ready_banner">✅ 已启用内置免费 Google 翻译 — 无需填写 API 密钥即可直接翻译！</string>
+    <string name="tr_api_key_optional_label">个人 API 密钥 (%1$s)</string>
+    <string name="tr_api_key_deepl_placeholder">粘贴 DeepL 密钥 (如 xxxx:fx)…</string>
+    <string name="tr_api_key_openai_placeholder">粘贴 sk-… 或 sk-or-v1-…</string>
+    <string name="tr_model_custom_label">模型 (%1$s)</string>
+    <string name="tr_endpoint_label">API 接口地址 (可选 / 自定义端点)</string>
+    <string name="tr_deepl_quality_prefer">画质/质量优先 (新一代 LLM)</string>
+    <string name="tr_deepl_quality_latency">速度优先 (经典低延迟)</string>
+
+    <string name="settings_section_autopair">🎬 字幕自动匹配视频文件名</string>
+    <string name="settings_autopair_enable">自动将字幕重命名为同名视频</string>
+    <string name="settings_autopair_enable_desc">下载或翻译完成后，自动在目标目录保存与所选视频完全同名的 .srt 字幕文件 (SAF)</string>
+    <string name="settings_autopair_folder_label">目标视频目录 (SAF)：</string>
+    <string name="settings_autopair_folder_unset">尚未选择（点击选择存放视频的文件夹）</string>
+    <string name="settings_autopair_video_label">已选目标视频：</string>
+    <string name="settings_autopair_video_auto">按番号/标题智能匹配或在保存时选择</string>
+    <string name="settings_autopair_btn_pick_folder">选择目录</string>
+    <string name="settings_autopair_btn_pick_video">选择视频</string>
+    <string name="settings_autopair_btn_clear_video">重置为自动匹配</string>
+    <string name="autopair_chip_active">🎬 自动配对: %1$s</string>
+    <string name="autopair_chip_off">🎬 自动配对: 关闭</string>
+    <string name="autopair_dialog_title">🎬 选择要配对的视频文件</string>
+    <string name="autopair_dialog_desc">点击目标文件夹中的视频文件，字幕将自动以同名 .%1$s 保存：</string>
+    <string name="autopair_dialog_folder_current">📁 目录: %1$s</string>
+    <string name="autopair_dialog_no_videos">此文件夹内未找到视频文件，请先选择包含视频的目录。</string>
+    <string name="autopair_dialog_recommended">⭐ 智能匹配推荐</string>
+    <string name="autopair_btn_save_manual">手动另存为…</string>
+
+    <string name="toast_editor_applied">✅ 字幕文本、UTF-8 编码与时间轴同步已应用！</string>
+    <string name="toast_encoding_applied">🔤 编码已切换为 %1$s (UTF-8 输出)</string>
+    <string name="toast_autopair_folder_set">📁 自动配对目录已设为: %1$s（发现 %2$d 个视频）</string>
+    <string name="toast_autopair_video_set">🎬 已锁定目标视频: %1$s</string>
+    <string name="toast_autopair_saved">✅ 已同名配对保存字幕: %1$s</string>
+    <string name="toast_enter_provider_api_key">请先输入 %1$s 的 API 密钥（或切换为免费 Google 翻译）。</string>
 </resources>

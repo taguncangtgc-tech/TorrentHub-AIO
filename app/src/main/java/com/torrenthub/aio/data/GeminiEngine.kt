@@ -1,15 +1,27 @@
 package com.torrenthub.aio.data
 
+import com.torrenthub.aio.model.TranslationProvider
 import com.torrenthub.aio.network.HttpClient
 import com.torrenthub.aio.util.Formatters
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToLong
 
 object GeminiEngine {
-    private const val GOOGLE_API = "https://generativelanguage.googleapis.com/v1beta"
+    const val DEFAULT_GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta"
+    const val DEFAULT_GOOGLE_GTX_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
+    const val DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1"
+    const val DEFAULT_DEEPL_FREE_ENDPOINT = "https://api-free.deepl.com/v2"
+    const val DEFAULT_DEEPL_PRO_ENDPOINT = "https://api.deepl.com/v2"
+
+    private const val GOOGLE_API = DEFAULT_GEMINI_ENDPOINT
     private const val OR_API = "https://openrouter.ai/api/v1"
     const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
     private const val CHUNK_SIZE = 50
@@ -24,6 +36,26 @@ object GeminiEngine {
         "deepseek/deepseek-chat",
         "qwen/qwen-2.5-72b-instruct",
         "x-ai/grok-3-mini"
+    )
+
+    val OPENAI_PRESET_MODELS = listOf(
+        "gpt-4o-mini",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-4o",
+        "deepseek-chat",
+        "google/gemini-2.5-flash"
+    )
+
+    val OPENAI_PRESET_ENDPOINTS = listOf(
+        "OpenAI" to "https://api.openai.com/v1",
+        "OpenRouter" to "https://openrouter.ai/api/v1",
+        "DeepSeek" to "https://api.deepseek.com/v1"
+    )
+
+    val DEEPL_MODELS = listOf(
+        "prefer_quality_optimized",
+        "latency_optimized"
     )
 
     private val FALLBACK_GOOGLE_CHAIN = listOf(
@@ -411,8 +443,14 @@ object GeminiEngine {
 
     /* ================= API TRANSLATION ENGINE ================= */
     data class TranslateConfig(
-        val keys: List<String>,
-        val model: String,
+        val provider: TranslationProvider = TranslationProvider.GEMINI,
+        val keys: List<String> = emptyList(),
+        val model: String = DEFAULT_MODEL,
+        val customEndpoint: String = "",
+        val deeplKey: String = "",
+        val deeplModel: String = "prefer_quality_optimized",
+        val openaiKey: String = "",
+        val openaiModel: String = "gpt-4o-mini",
         val taskMode: String, // "translate" or "polish"
         val targetLang: String = "id",
         val notes: String,
@@ -429,11 +467,140 @@ object GeminiEngine {
     private class BlockedException(message: String) : Exception(message)
     private class RetryableException(message: String) : Exception(message)
 
-    suspend fun pingKeys(keys: List<String>, rawModel: String): List<String> {
+    private fun googleGtxLangCode(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
+        "id" -> "id"
+        "en" -> "en"
+        "zh" -> "zh-CN"
+        "ja" -> "ja"
+        "ko" -> "ko"
+        else -> "id"
+    }
+
+    private fun deeplTargetLangCode(targetLang: String): String = when (targetLang.lowercase(Locale.ROOT)) {
+        "id" -> "ID"
+        "en" -> "EN"
+        "zh" -> "ZH"
+        "ja" -> "JA"
+        "ko" -> "KO"
+        else -> "ID"
+    }
+
+    fun resolveDeepLEndpoint(rawEndpoint: String, apiKey: String): String {
+        val clean = rawEndpoint.trim().trimEnd('/')
+        if (clean.isNotBlank()) return clean
+        return if (apiKey.trim().endsWith(":fx", ignoreCase = true)) {
+            DEFAULT_DEEPL_FREE_ENDPOINT
+        } else {
+            DEFAULT_DEEPL_PRO_ENDPOINT
+        }
+    }
+
+    suspend fun pingProvider(
+        provider: TranslationProvider,
+        keys: List<String>,
+        rawModel: String,
+        customEndpoint: String,
+        targetLang: String = "id"
+    ): List<String> {
+        return when (provider) {
+            TranslationProvider.GOOGLE_FREE -> {
+                val ep = customEndpoint.trim().ifBlank { DEFAULT_GOOGLE_GTX_ENDPOINT }
+                val tl = googleGtxLangCode(targetLang)
+                val t0 = System.currentTimeMillis()
+                try {
+                    val (code, body) = HttpClient.postForm(
+                        ep,
+                        mapOf(
+                            "client" to "gtx",
+                            "sl" to "auto",
+                            "tl" to tl,
+                            "dt" to "t",
+                            "q" to "Hello world"
+                        )
+                    )
+                    val ms = System.currentTimeMillis() - t0
+                    if (code == 200 && body.trimStart().startsWith("[")) {
+                        val sample = JSONArray(body).optJSONArray(0)?.optJSONArray(0)?.optString(0).orEmpty()
+                        listOf("✅ Google Translate Free [$tl]: OK ($ms ms) → \"$sample\"")
+                    } else {
+                        listOf("❌ Google Translate Free: FAIL — ${HttpClient.buildErrorDetail(code, body)}")
+                    }
+                } catch (e: Exception) {
+                    listOf("⚠️ Google Translate Free: ERROR — ${e.message}")
+                }
+            }
+            TranslationProvider.GEMINI -> pingKeys(keys, rawModel, customEndpoint)
+            TranslationProvider.DEEPL -> {
+                val logs = mutableListOf<String>()
+                keys.forEachIndexed { idx, k ->
+                    val ep = resolveDeepLEndpoint(customEndpoint, k)
+                    val url = if (ep.endsWith("/translate")) ep else "$ep/translate"
+                    val t0 = System.currentTimeMillis()
+                    try {
+                        val payload = JSONObject()
+                            .put("text", JSONArray().put("Hello world"))
+                            .put("target_lang", deeplTargetLangCode(targetLang))
+                        val headers = if (k.isNotBlank()) mapOf("Authorization" to "DeepL-Auth-Key $k") else emptyMap()
+                        val (code, text) = HttpClient.postJson(url, payload.toString(), headers = headers)
+                        val ms = System.currentTimeMillis() - t0
+                        val masked = if (k.isNotBlank()) k.take(8) + "…" else "Custom"
+                        if (code == 200) {
+                            val out = JSONObject(text).optJSONArray("translations")?.optJSONObject(0)?.optString("text").orEmpty()
+                            logs.add("✅ DeepL #${idx + 1} [$ep] ($masked): OK ($ms ms) → \"$out\"")
+                        } else {
+                            logs.add("❌ DeepL #${idx + 1} [$ep] ($masked): FAIL — ${HttpClient.buildErrorDetail(code, text)}")
+                        }
+                    } catch (e: Exception) {
+                        logs.add("⚠️ DeepL #${idx + 1}: ERROR — ${e.message}")
+                    }
+                }
+                logs
+            }
+            TranslationProvider.OPENAI -> {
+                val logs = mutableListOf<String>()
+                val ep = customEndpoint.trim().trimEnd('/').ifBlank { DEFAULT_OPENAI_ENDPOINT }
+                val chatUrl = if (ep.endsWith("/chat/completions")) ep else "$ep/chat/completions"
+                val model = rawModel.ifBlank { "gpt-4o-mini" }.trim()
+                keys.forEachIndexed { idx, k ->
+                    val t0 = System.currentTimeMillis()
+                    try {
+                        val body = JSONObject()
+                            .put("model", model)
+                            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with only: OK")))
+                        val headers = buildMap {
+                            if (k.isNotBlank()) put("Authorization", "Bearer $k")
+                            if (ep.contains("openrouter.ai", ignoreCase = true)) {
+                                put("HTTP-Referer", "https://mypikpak.com")
+                                put("X-Title", "TorrentHub AIO")
+                            }
+                        }
+                        val (code, text) = HttpClient.postJson(chatUrl, body.toString(), headers = headers)
+                        val ms = System.currentTimeMillis() - t0
+                        val masked = k.take(10) + "…"
+                        if (code == 200) {
+                            logs.add("✅ OpenAI/Compatible #${idx + 1} [$model] ($masked): OK ($ms ms)")
+                        } else {
+                            logs.add("❌ OpenAI/Compatible #${idx + 1} [$model] ($masked): FAIL — ${HttpClient.buildErrorDetail(code, text)}")
+                        }
+                    } catch (e: Exception) {
+                        logs.add("⚠️ OpenAI/Compatible #${idx + 1}: ERROR — ${e.message}")
+                    }
+                }
+                logs
+            }
+        }
+    }
+
+    suspend fun pingKeys(
+        keys: List<String>,
+        rawModel: String,
+        customGeminiEndpoint: String = ""
+    ): List<String> {
+        val geminiBase = customGeminiEndpoint.trim().trimEnd('/').ifBlank { GOOGLE_API }
         val logs = mutableListOf<String>()
         keys.forEachIndexed { idx, k ->
             val isOR = isOpenRouterKey(k)
-            val provider = if (isOR) "OpenRouter" else "Google Free"
+            val provider = if (isOR) "OpenRouter" else "Gemini API"
             val model = resolveModelForProvider(rawModel, isOR)
             val t0 = System.currentTimeMillis()
             try {
@@ -452,7 +619,7 @@ object GeminiEngine {
                         JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", "Reply with only: OK"))))
                     )
                     HttpClient.postJson(
-                        "$GOOGLE_API/models/${Formatters.urlEncode(model)}:generateContent",
+                        "$geminiBase/models/${Formatters.urlEncode(model)}:generateContent",
                         body.toString(),
                         headers = mapOf("x-goog-api-key" to k)
                     )
@@ -471,7 +638,37 @@ object GeminiEngine {
         return logs
     }
 
-    suspend fun fetchAvailableModels(keys: List<String>): List<String> {
+    suspend fun fetchAvailableModels(
+        keys: List<String>,
+        provider: TranslationProvider = TranslationProvider.GEMINI,
+        customEndpoint: String = ""
+    ): List<String> {
+        if (provider == TranslationProvider.OPENAI) {
+            val ep = customEndpoint.trim().trimEnd('/').ifBlank { DEFAULT_OPENAI_ENDPOINT }
+            val modelsUrl = "${ep.removeSuffix("/chat/completions")}/models"
+            val key = keys.firstOrNull().orEmpty()
+            val list = mutableListOf<String>()
+            if (key.isNotBlank()) {
+                try {
+                    val raw = HttpClient.getString(
+                        modelsUrl,
+                        headers = mapOf("Authorization" to "Bearer $key")
+                    )
+                    val arr = JSONObject(raw).optJSONArray("data")
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            val id = arr.optJSONObject(i)?.optString("id").orEmpty()
+                            if (id.isNotBlank() && !Regex("embedding|whisper|tts|dall-e|moderation|audio|realtime", RegexOption.IGNORE_CASE).containsMatchIn(id)) {
+                                list.add(id)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            return (OPENAI_PRESET_MODELS + list).distinct()
+        }
+
+        val geminiBase = customEndpoint.trim().trimEnd('/').ifBlank { GOOGLE_API }
         val orKey = keys.firstOrNull { isOpenRouterKey(it) }
         val gKey = keys.firstOrNull { !isOpenRouterKey(it) }
         val result = mutableListOf<String>()
@@ -479,7 +676,7 @@ object GeminiEngine {
         if (gKey != null) {
             try {
                 val raw = HttpClient.getString(
-                    "$GOOGLE_API/models?pageSize=200",
+                    "$geminiBase/models?pageSize=200",
                     headers = mapOf("x-goog-api-key" to gKey)
                 )
                 val arr = JSONObject(raw).optJSONArray("models")
@@ -611,9 +808,10 @@ object GeminiEngine {
             body.put("safetySettings", safety)
         }
 
+        val geminiBase = cfg.customEndpoint.trim().trimEnd('/').ifBlank { GOOGLE_API }
         val (code, respText) = try {
             HttpClient.postJson(
-                "$GOOGLE_API/models/${Formatters.urlEncode(model)}:generateContent",
+                "$geminiBase/models/${Formatters.urlEncode(model)}:generateContent",
                 body.toString(),
                 headers = mapOf("x-goog-api-key" to apiKey),
                 useLongTimeout = true
@@ -718,6 +916,168 @@ object GeminiEngine {
         }
     }
 
+    private suspend fun callGoogleTranslateFreeSingle(endpoint: String, tl: String, text: String): String {
+        val (code, respText) = try {
+            HttpClient.postForm(
+                endpoint,
+                mapOf(
+                    "client" to "gtx",
+                    "sl" to "auto",
+                    "tl" to tl,
+                    "dt" to "t",
+                    "q" to text
+                ),
+                useLongTimeout = true
+            )
+        } catch (e: Exception) {
+            throw RetryableException("Google Translate network error (${e.message})")
+        }
+        if (code == 429 || code >= 500) {
+            throw RetryableException("Google Translate busy (HTTP $code)")
+        }
+        if (code != 200) throw Exception(HttpClient.buildErrorDetail(code, respText))
+        val outer = JSONArray(respText).optJSONArray(0) ?: return ""
+        return buildString {
+            for (i in 0 until outer.length()) {
+                append(outer.optJSONArray(i)?.optString(0).orEmpty())
+            }
+        }
+    }
+
+    private suspend fun callGoogleTranslateFree(
+        cfg: TranslateConfig,
+        items: List<String>
+    ): List<String> {
+        if (items.isEmpty()) return emptyList()
+        val endpoint = cfg.customEndpoint.trim().ifBlank { DEFAULT_GOOGLE_GTX_ENDPOINT }
+        val tl = googleGtxLangCode(cfg.targetLang)
+        val lineBreakToken = " ⏎ "
+        val sanitized = items.map { it.replace(Regex("\\r?\\n"), lineBreakToken).trim() }
+        val joined = sanitized.joinToString("\n")
+
+        val combinedTranslated = callGoogleTranslateFreeSingle(endpoint, tl, joined)
+        val splitLines = combinedTranslated.split("\n")
+        if (splitLines.size == items.size) {
+            return splitLines.map { it.replace(Regex("\\s*⏎\\s*"), "\n").trim() }
+        }
+
+        // Fallback to parallel per-line translation if Google merged a newline
+        val sem = Semaphore(4)
+        return coroutineScope {
+            items.map { item ->
+                async {
+                    sem.withPermit {
+                        callGoogleTranslateFreeSingle(endpoint, tl, item).trim()
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    private suspend fun callDeepLApi(
+        cfg: TranslateConfig,
+        apiKey: String,
+        items: List<String>
+    ): List<String> {
+        if (items.isEmpty()) return emptyList()
+        val ep = resolveDeepLEndpoint(cfg.customEndpoint, apiKey)
+        val url = if (ep.endsWith("/translate")) ep else "$ep/translate"
+        val targetCode = deeplTargetLangCode(cfg.targetLang)
+        val headers = if (apiKey.isNotBlank()) mapOf("Authorization" to "DeepL-Auth-Key $apiKey") else emptyMap()
+
+        suspend fun executeCall(includeModelType: Boolean): Pair<Int, String> {
+            val payload = JSONObject()
+                .put("text", JSONArray().apply { items.forEach { put(it) } })
+                .put("target_lang", targetCode)
+            if (includeModelType && cfg.deeplModel.isNotBlank()) {
+                payload.put("model_type", cfg.deeplModel)
+            }
+            return try {
+                HttpClient.postJson(url, payload.toString(), headers = headers, useLongTimeout = true)
+            } catch (e: Exception) {
+                throw RetryableException("DeepL network error (${e.message})")
+            }
+        }
+
+        var (code, respText) = executeCall(includeModelType = true)
+        if (code == 400 && respText.contains("model_type", ignoreCase = true)) {
+            val retry = executeCall(includeModelType = false)
+            code = retry.first
+            respText = retry.second
+        }
+
+        if (code == 401 || code == 403 || code == 456 || code == 429) {
+            throw KeySwitchException(code, HttpClient.buildErrorDetail(code, respText))
+        }
+        if (code >= 500) throw RetryableException("DeepL server busy ($code)")
+        if (code != 200) throw Exception(HttpClient.buildErrorDetail(code, respText))
+
+        val arr = JSONObject(respText).optJSONArray("translations")
+            ?: throw RetryableException("Empty DeepL response")
+        if (arr.length() != items.size) throw Exception("mismatch")
+        return List(arr.length()) { idx -> arr.optJSONObject(idx)?.optString("text").orEmpty() }
+    }
+
+    private suspend fun callOpenAiCompatible(
+        cfg: TranslateConfig,
+        modelOverride: String,
+        apiKey: String,
+        items: List<String>,
+        prevCtx: List<ContextPair>
+    ): List<String> {
+        val ep = cfg.customEndpoint.trim().trimEnd('/').ifBlank { DEFAULT_OPENAI_ENDPOINT }
+        val url = if (ep.endsWith("/chat/completions")) ep else "$ep/chat/completions"
+        val model = modelOverride.ifBlank { cfg.openaiModel }.ifBlank { "gpt-4o-mini" }.trim()
+        val inputArr = JSONArray().apply { items.forEach { put(it) } }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", buildSystemPrompt(cfg, prevCtx)))
+            .put(JSONObject().put("role", "user").put("content", inputArr.toString()))
+
+        val body = JSONObject()
+            .put("model", model)
+            .put("temperature", if (cfg.taskMode == "polish") 0.3 else 0.35)
+            .put("messages", messages)
+
+        val headers = buildMap {
+            if (apiKey.isNotBlank()) put("Authorization", "Bearer $apiKey")
+            if (ep.contains("openrouter.ai", ignoreCase = true)) {
+                put("HTTP-Referer", "https://mypikpak.com")
+                put("X-Title", "TorrentHub AIO")
+            }
+        }
+
+        val (code, respText) = try {
+            HttpClient.postJson(url, body.toString(), headers = headers, useLongTimeout = true)
+        } catch (e: Exception) {
+            throw RetryableException("OpenAI API network error (${e.message})")
+        }
+
+        if (code == 401 || code == 402 || code == 403 || code == 429) {
+            throw KeySwitchException(code, HttpClient.buildErrorDetail(code, respText))
+        }
+        if (code >= 500) throw RetryableException("Server busy ($code)")
+        if (code != 200) throw Exception(HttpClient.buildErrorDetail(code, respText))
+
+        val root = JSONObject(respText)
+        root.optJSONObject("error")?.let {
+            throw RetryableException(it.optString("message", "API error"))
+        }
+        val choice = root.optJSONArray("choices")?.optJSONObject(0)
+        val content = choice?.optJSONObject("message")?.optString("content").orEmpty()
+        if (content.isBlank()) {
+            val reason = choice?.optString("finish_reason").orEmpty()
+            if (Regex("content_filter|safety", RegexOption.IGNORE_CASE).containsMatchIn(reason)) {
+                throw BlockedException("Blocked by filter: $reason")
+            }
+            throw RetryableException("Empty response ($reason)")
+        }
+        return try {
+            parseJsonStringList(content)
+        } catch (_: Exception) {
+            throw Exception("mismatch")
+        }
+    }
+
     suspend fun processSubtitleJob(
         sub: ParsedSubtitle,
         existingProgress: MutableList<String>?,
@@ -750,38 +1110,53 @@ object GeminiEngine {
         }
 
         var keyIdx = 0
-        var activeModel = cfg.model.ifBlank { DEFAULT_MODEL }
+        var activeModel = when (cfg.provider) {
+            TranslationProvider.OPENAI -> cfg.openaiModel.ifBlank { cfg.model }.ifBlank { "gpt-4o-mini" }
+            TranslationProvider.DEEPL -> cfg.deeplModel.ifBlank { "prefer_quality_optimized" }
+            TranslationProvider.GOOGLE_FREE -> "gtx"
+            TranslationProvider.GEMINI -> cfg.model.ifBlank { DEFAULT_MODEL }
+        }
         var failedLines = 0
         var blockStreak = 0
         var doneCount = if (limitLines > 0) 0 else (indexes.size - remaining.size)
         val targetTotal = if (limitLines > 0) remaining.size else indexes.size
+        val effectiveKeys = when (cfg.provider) {
+            TranslationProvider.GOOGLE_FREE -> listOf("google-free")
+            TranslationProvider.DEEPL -> parseKeys(cfg.deeplKey).ifEmpty { cfg.keys }.ifEmpty { listOf("") }
+            TranslationProvider.OPENAI -> parseKeys(cfg.openaiKey).ifEmpty { cfg.keys }.ifEmpty { listOf("") }
+            TranslationProvider.GEMINI -> cfg.keys
+        }
 
         suspend fun translateWithRotation(items: List<String>, prevCtx: List<ContextPair>): List<String> {
             var keySwitches = 0
             var netRetry = 0
-            val totalKeys = cfg.keys.size
+            val totalKeys = effectiveKeys.size.coerceAtLeast(1)
 
             while (true) {
                 if (isCancelled()) throw Exception("Cancelled")
-                val key = cfg.keys[keyIdx % totalKeys]
-                val useOR = isOpenRouterKey(key)
+                val key = effectiveKeys.getOrElse(keyIdx % totalKeys) { "" }
+                val useOR = cfg.provider == TranslationProvider.GEMINI && isOpenRouterKey(key)
 
                 try {
-                    return if (useOR) {
-                        callOpenRouter(cfg, activeModel, key, items, prevCtx)
-                    } else {
-                        callGoogleFree(cfg, activeModel, key, items, prevCtx)
+                    return when (cfg.provider) {
+                        TranslationProvider.GOOGLE_FREE -> callGoogleTranslateFree(cfg, items)
+                        TranslationProvider.DEEPL -> callDeepLApi(cfg, key, items)
+                        TranslationProvider.OPENAI -> callOpenAiCompatible(cfg, activeModel, key, items, prevCtx)
+                        TranslationProvider.GEMINI -> {
+                            if (useOR) callOpenRouter(cfg, activeModel, key, items, prevCtx)
+                            else callGoogleFree(cfg, activeModel, key, items, prevCtx)
+                        }
                     }
                 } catch (e: BlockedException) {
-                    val firstOr = cfg.keys.indexOfFirst { isOpenRouterKey(it) }
-                    if (!useOR && firstOr >= 0) {
+                    val firstOr = effectiveKeys.indexOfFirst { isOpenRouterKey(it) }
+                    if (cfg.provider == TranslationProvider.GEMINI && !useOR && firstOr >= 0) {
                         onProgress(
                             ((doneCount * 100) / targetTotal).coerceIn(0, 99),
                             "Google safety filter -> OpenRouter…",
                             tr,
                             null
                         )
-                        return callOpenRouter(cfg, activeModel, cfg.keys[firstOr], items, prevCtx)
+                        return callOpenRouter(cfg, activeModel, effectiveKeys[firstOr], items, prevCtx)
                     }
                     throw e
                 } catch (e: KeySwitchException) {
@@ -799,7 +1174,9 @@ object GeminiEngine {
                         continue
                     }
 
-                    if (!useOR && (e.httpCode == 503 || e.httpCode == 404 || shortReason.contains("Quota 0"))) {
+                    if (cfg.provider == TranslationProvider.GEMINI && !useOR &&
+                        (e.httpCode == 503 || e.httpCode == 404 || shortReason.contains("Quota 0"))
+                    ) {
                         val nextModel = FALLBACK_GOOGLE_CHAIN.firstOrNull {
                             !it.equals(activeModel, ignoreCase = true) &&
                                 FALLBACK_GOOGLE_CHAIN.indexOf(it) > FALLBACK_GOOGLE_CHAIN.indexOf(activeModel)
@@ -820,7 +1197,7 @@ object GeminiEngine {
                         }
                     }
 
-                    if ((e.httpCode == 401 || e.httpCode == 402 || e.httpCode == 403) && keySwitches >= totalKeys) {
+                    if ((e.httpCode == 401 || e.httpCode == 402 || e.httpCode == 403 || e.httpCode == 456) && keySwitches >= totalKeys) {
                         throw Exception("API key rejected ($shortReason)")
                     }
 
@@ -876,15 +1253,29 @@ object GeminiEngine {
             }
         }
 
+        val batchSize = when (cfg.provider) {
+            TranslationProvider.GOOGLE_FREE -> 25
+            TranslationProvider.DEEPL -> 40
+            TranslationProvider.OPENAI -> 45
+            TranslationProvider.GEMINI -> CHUNK_SIZE
+        }
         val langTag = cfg.targetLang.uppercase(Locale.ROOT)
         var pos = 0
         while (pos < remaining.size) {
             if (isCancelled()) throw Exception("Cancelled")
             if (pos > 0) {
-                val usingOR = isOpenRouterKey(cfg.keys[keyIdx % cfg.keys.size])
-                delay(if (usingOR) 400L else 1100L)
+                val waitMs = when (cfg.provider) {
+                    TranslationProvider.GOOGLE_FREE -> 250L
+                    TranslationProvider.DEEPL -> 300L
+                    TranslationProvider.OPENAI -> 350L
+                    TranslationProvider.GEMINI -> {
+                        val curK = effectiveKeys.getOrElse(keyIdx % effectiveKeys.size.coerceAtLeast(1)) { "" }
+                        if (isOpenRouterKey(curK)) 400L else 1100L
+                    }
+                }
+                delay(waitMs)
             }
-            val group = remaining.subList(pos, minOf(pos + CHUNK_SIZE, remaining.size))
+            val group = remaining.subList(pos, minOf(pos + batchSize, remaining.size))
 
             val prevCtx = mutableListOf<ContextPair>()
             if (cfg.useSlidingContext) {
@@ -905,14 +1296,22 @@ object GeminiEngine {
             val pct = ((doneCount * 100) / targetTotal).coerceIn(1, 100)
             val lastIdx = group.last()
             val samplePair = "[#${lastIdx + 1}] ${sub.texts[lastIdx].replace("\n", " / ")}\n→ ${tr[lastIdx].ifBlank { "(—)" }.replace("\n", " / ")}"
-            val keyLabel = if (isOpenRouterKey(cfg.keys[keyIdx % cfg.keys.size])) "OpenRouter" else "Key #${(keyIdx % cfg.keys.size) + 1} · $activeModel"
+            val keyLabel = when (cfg.provider) {
+                TranslationProvider.GOOGLE_FREE -> "Google Free"
+                TranslationProvider.DEEPL -> "DeepL"
+                TranslationProvider.OPENAI -> "OpenAI · $activeModel"
+                TranslationProvider.GEMINI -> {
+                    val curK = effectiveKeys.getOrElse(keyIdx % effectiveKeys.size.coerceAtLeast(1)) { "" }
+                    if (isOpenRouterKey(curK)) "OpenRouter" else "Gemini #${(keyIdx % effectiveKeys.size.coerceAtLeast(1)) + 1} · $activeModel"
+                }
+            }
             onProgress(
                 pct,
                 "[$keyLabel → $langTag] $doneCount/$targetTotal ($pct%)" + (if (failedLines > 0) " | err: $failedLines" else ""),
                 tr,
                 samplePair
             )
-            pos += CHUNK_SIZE
+            pos += batchSize
         }
 
         return tr
